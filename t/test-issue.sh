@@ -1259,17 +1259,17 @@ else
 fi
 
 # ============================================================
-# TEST: version shows 1.1.0
+# TEST: version shows 1.2.0
 # ============================================================
 run_test
 setup_repo
 output="$(git issue version 2>&1)"
 case "$output" in
-	*"1.1.0"*)
-		pass "version shows 1.1.0"
+	*"1.2.0"*)
+		pass "version shows 1.2.0"
 		;;
 	*)
-		fail "version shows 1.1.0" "got: $output"
+		fail "version shows 1.2.0" "got: $output"
 		;;
 esac
 

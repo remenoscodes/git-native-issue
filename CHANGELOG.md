@@ -7,6 +7,52 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-08
+
+### Added
+- **Gitea/Forgejo bridge** - Import, export, and sync issues with Gitea and Forgejo
+  - `git issue import gitea:owner/repo` - Import issues from Gitea
+  - `git issue import forgejo:owner/repo` - Import issues from Forgejo (Codeberg.org, etc.)
+  - `git issue export gitea:owner/repo` - Export issues to Gitea
+  - `git issue export forgejo:owner/repo` - Export issues to Forgejo
+  - `git issue sync gitea:owner/repo` - Bidirectional synchronization
+  - Uses direct API calls (curl + jq) - NO CLI tool required
+  - Token authentication via GITEA_TOKEN/FORGEJO_TOKEN env vars or config files
+  - Self-hosted instance support via --url flag
+  - Provider-ID format: `gitea:owner/repo#123` or `forgejo:owner/repo#123`
+  - Auto-detect platform (Gitea vs Forgejo) via /api/v1/version endpoint
+  - Default URLs: https://gitea.com (Gitea), https://codeberg.org (Forgejo)
+  - Idempotent operations with Provider-Comment-ID tracking
+  - Bidirectional comment sync
+
+### Changed
+- **Bridge architecture extended** - Added Gitea/Forgejo provider-specific scripts
+  - bin/git-issue-import-gitea: Gitea/Forgejo import implementation (467 lines)
+  - bin/git-issue-export-gitea: Gitea/Forgejo export implementation (506 lines)
+  - bin/git-issue-{import,export,sync}: Updated routers for gitea:/forgejo: prefixes
+- **Documentation updates**
+  - Fixed GitLab bridge docs to correctly reference glab CLI (not curl/PAT)
+  - Updated authentication instructions for GitLab bridge
+
+### Testing
+- Gitea/Forgejo bridge test suite: 40 comprehensive tests
+  - t/test-gitea-bridge.sh: 30 mock tests with fixtures
+  - t/test-integration-gitea.sh: 10 real instance tests
+  - Mock curl implementation for isolated testing
+  - JSON fixtures for Gitea API responses
+- Test documentation: t/TEST-GITEA-BRIDGE.md
+
+### Documentation
+- Gitea/Forgejo bridge setup guide (docs/gitea-bridge.md) - 700+ lines
+  - Authentication setup (Personal Access Tokens)
+  - Import/export/sync examples
+  - Self-hosted instance configuration
+  - API compatibility notes (Gitea 1.0+, Forgejo 1.18+)
+  - Troubleshooting guide
+  - Migration workflows (GitHub→Gitea, GitLab→Forgejo)
+- Updated README.md with Gitea/Forgejo bridge section
+- Updated QUICKSTART.md with Gitea/Forgejo examples
+
 ## [1.1.0] - 2026-02-08
 
 ### Added
@@ -128,6 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.2.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.1...v1.0.2
