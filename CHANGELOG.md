@@ -5,6 +5,24 @@ All notable changes to git-native-issue will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.3] - 2026-02-11
+
+### Changed
+- **CI/CD Refactored** - Homebrew tap updates now fully automated
+  - Removed Formula/ directory from main repository
+  - Tap formula now lives exclusively in homebrew-git-native-issue repository
+  - Release workflow triggers automated formula updates via repository_dispatch
+  - Follows official Homebrew tap best practices
+- **Documentation improvements**
+  - Comprehensive README for Homebrew tap with CI/CD architecture
+  - Removed tool-specific references, keeping documentation generic
+  - Platform migration use case highlighted in announcement
+
+### Infrastructure
+- Automated tap update workflow in homebrew-git-native-issue
+- PAT token integration for cross-repository workflow triggers
+- Zero-downtime formula updates (users get new version within minutes)
+
 ## [1.0.2] - 2026-02-11
 
 ### Added
@@ -63,5 +81,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.0.3]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/remenoscodes/git-native-issue/releases/tag/v1.0.1
