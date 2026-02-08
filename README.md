@@ -217,9 +217,13 @@ git issue search -i "firefox"   # Case-insensitive
 git issue search "bug" --state open  # Only open issues
 ```
 
-### GitHub Bridge
+### Platform Bridges
 
-Import and export issues from/to GitHub. Requires [`gh`](https://cli.github.com/) and `jq`.
+Import and export issues from/to GitHub and GitLab. Use Git as the source of truth while maintaining compatibility with hosted platforms.
+
+#### GitHub Bridge
+
+Requires [`gh`](https://cli.github.com/) and `jq`.
 
 ```sh
 # Import all open issues from a GitHub repo
@@ -238,19 +242,58 @@ git issue export github:owner/repo
 git issue sync github:owner/repo --state all
 ```
 
-**How it works:**
-
-- `import` fetches GitHub issues via `gh api`, creates local `refs/issues/` commits with full metadata (labels, assignee, milestone, comments, author)
-- `export` creates GitHub issues from local issues, exports comments, syncs state
-- A `Provider-ID` trailer tracks the mapping (e.g., `Provider-ID: github:owner/repo#42`) to prevent duplicates on re-import/re-export
-- Re-importing skips already-imported issues; re-exporting syncs state changes
-
 **Prerequisites:**
 
 ```sh
 brew install gh jq       # macOS
 gh auth login            # authenticate with GitHub
 ```
+
+#### GitLab Bridge
+
+Supports both GitLab.com and self-hosted instances. Requires `jq` and `curl`.
+
+```sh
+# Import all open issues from a GitLab project
+git issue import gitlab:group/project
+
+# Import from self-hosted GitLab
+git issue import gitlab:company/product \
+  --url https://gitlab.company.com \
+  --state all
+
+# Preview what would be imported
+git issue import gitlab:group/project --dry-run
+
+# Export to GitLab (coming in v1.2.0)
+git issue export gitlab:group/project
+
+# Two-way sync
+git issue sync gitlab:group/project --state all
+```
+
+**Authentication:**
+
+Create a GitLab Personal Access Token (PAT) with `read_api` (import) or `api` (import + export) scope:
+
+```sh
+# Via environment variable
+export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
+
+# Or via config file (recommended)
+mkdir -p ~/.config/git-native-issue
+echo "glpat-xxxxxxxxxxxxxxxxxxxx" > ~/.config/git-native-issue/gitlab-token
+chmod 600 ~/.config/git-native-issue/gitlab-token
+```
+
+**How bridges work:**
+
+- `import` fetches issues via API, creates local `refs/issues/` commits with full metadata (labels, assignee, comments, author)
+- `export` creates platform issues from local issues, syncs comments and state
+- A `Provider-ID` trailer tracks the mapping (e.g., `Provider-ID: github:owner/repo#42` or `Provider-ID: gitlab:group/project#42`) to prevent duplicates on re-import/re-export
+- Re-importing skips already-imported issues and appends only new comments
+
+**See also:** [docs/gitlab-bridge.md](docs/gitlab-bridge.md) for detailed GitLab documentation, including migration workflows and troubleshooting.
 
 ### AI Agent Workflows
 
