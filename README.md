@@ -252,6 +252,34 @@ brew install gh jq       # macOS
 gh auth login            # authenticate with GitHub
 ```
 
+### AI Agent Workflows
+
+git-native-issue is designed for AI coding agents. Unlike TODO comments, issues have structured metadata that agents can parse and update.
+
+**Example: Code review agent**
+```bash
+# Agent creates issues for findings
+git issue create "SQL injection risk in search" -l security -p critical
+git issue create "Missing error handling in payments" -l bug -p high
+
+# Human reviews and triages
+git issue ls --priority critical
+git issue state abc --close -m "False positive"
+```
+
+**Why better than TODO comments:**
+- ✅ Structured metadata (priority, labels, assignee)
+- ✅ Full history (`git log refs/issues/xyz`)
+- ✅ No API rate limits (all local)
+- ✅ Status tracking (open/closed/in-progress)
+- ✅ Searchable (`git issue search "race condition"`)
+
+**Agents that work well with git-issue:**
+- Claude Code (via bash commands)
+- GitHub Copilot Workspace (via git integration)
+- Cursor (via terminal)
+- Custom agents (via git plumbing commands)
+
 ### Distributed Merge
 
 When multiple people track the same issues, their ref chains can diverge.

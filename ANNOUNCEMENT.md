@@ -44,6 +44,31 @@ git issue show a7f3b2c
 
 Our issues are in `refs/issues/*`, synced via `git push` and `git fetch` like code. When you report a bug, you're creating a commit. When we close it, we're updating metadata with Git trailers. This isn't a demo — it's production.
 
+## Built for AI Agents (The 2026 Use Case)
+
+AI coding agents (Claude Code, Cursor, GitHub Copilot) need better issue tracking than TODO comments. git-native-issue provides structured, versioned, Git-native issue tracking that agents can work with directly:
+
+**Why better than TODO comments:**
+- **Structured metadata** - Priority, labels, assignee (not scattered text)
+- **Full history** - `git log refs/issues/xyz` shows issue evolution
+- **No API limits** - Everything local, no rate limits
+- **Async workflow** - Agent creates, human triages later
+
+**Example: Code review agent**
+```sh
+# Agent finds issues during code review
+git issue create "Potential race condition in auth" \
+  -l security -l concurrency -p critical \
+  -m "Two threads can modify user.session simultaneously at line 42"
+
+# Human reviews agent's findings
+git issue ls --priority critical
+git issue show abc123
+git issue state abc123 --close -m "False positive - mutex exists"
+```
+
+Your agent's work is now tracked, versioned, and synced with your code.
+
 ## Production-Ready
 
 - **153 tests** covering core functionality (76), GitHub bridge (36), merge rules (20), and quality-of-life features (21)
