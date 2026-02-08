@@ -39,6 +39,8 @@ do
 done
 
 # Verify we are inside a git repository
+# shellcheck disable=SC2034  # git_dir is used for validation check
+git_dir="$(git rev-parse --git-dir 2>/dev/null)" || {
 	echo "fatal: not a git repository" >&2
 	exit 128
 }
