@@ -7,12 +7,18 @@ set -e
 
 usage() {
 	cat <<EOF
-usage: git issue import github:<owner>/<repo> [options]
+usage: git issue import <provider> [options]
+
+Supported providers:
+   github:<owner>/<repo>        GitHub repository
+   gitlab:<group>/<project>     GitLab project
 
 Options:
-   --state <state>   Filter by state: open, closed, all (default: open)
+   --state <state>   Filter by state (default: open/opened)
    --dry-run         Show what would be imported without importing
    -h, --help        Show this help
+
+See 'git issue import <provider> --help' for provider-specific options.
 EOF
 	exit 1
 }
@@ -64,16 +70,20 @@ then
 	usage
 fi
 
-# Parse provider string
+# Find the directory containing the git-issue scripts
+ISSUE_BIN_DIR="$(cd "$(dirname "$0")")" && pwd)"
+
+# Delegate to provider-specific script
 case "$provider" in
 	github:*/*)
-		gh_repo="${provider#github:}"
-		gh_owner="${gh_repo%/*}"
-		gh_reponame="${gh_repo#*/}"
+		exec "$ISSUE_BIN_DIR/git-issue-import-github" "$@"
+		;;
+	gitlab:*/*)
+		exec "$ISSUE_BIN_DIR/git-issue-import-gitlab" "$@"
 		;;
 	*)
-		echo "error: invalid provider string '$provider'" >&2
-		echo "       expected format: github:<owner>/<repo>" >&2
+		echo "error: unsupported or invalid provider '$provider'" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<group>/<project>" >&2
 		exit 1
 		;;
 esac

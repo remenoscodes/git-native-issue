@@ -1,0 +1,364 @@
+#!/bin/sh
+#
+# git-issue-import-gitlab - Import issues from GitLab
+#
+# Usage: git issue import gitlab:<group>/<project> [options]
+#
+
+set -e
+
+usage() {
+	cat <<EOF
+usage: git issue import gitlab:<group>/<project> [options]
+
+Options:
+   --state <state>   Filter by state: opened, closed, all (default: opened)
+   --dry-run         Show what would be imported without importing
+   -h, --help        Show this help
+
+Authentication:
+   Requires GitLab authentication via 'glab auth login'.
+   Run 'glab auth login' first if not already authenticated.
+EOF
+	exit 1
+}
+
+provider=""
+state_filter="opened"
+dry_run=0
+
+while test $# -gt 0
+do
+	case "$1" in
+		--state)
+			test $# -ge 2 || { echo "error: --state requires a value" >&2; exit 1; }
+			case "$2" in
+				opened|closed|all) ;;
+				*) echo "error: --state must be opened, closed, or all" >&2; exit 1 ;;
+			esac
+			state_filter="$2"
+			shift 2
+			;;
+		--dry-run)
+			dry_run=1
+			shift
+			;;
+		-h|--help)
+			usage
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			echo "error: unknown option '$1'" >&2
+			usage
+			;;
+		*)
+			if test -z "$provider"
+			then
+				provider="$1"
+			fi
+			shift
+			;;
+	esac
+done
+
+if test -z "$provider"
+then
+	echo "error: provider is required (e.g., gitlab:group/project)" >&2
+	usage
+fi
+
+# Parse provider string
+case "$provider" in
+	gitlab:*/*)
+		gl_path="${provider#gitlab:}"
+		gl_group="${gl_path%/*}"
+		gl_project="${gl_path#*/}"
+		gl_repo="$gl_group/$gl_project"
+		;;
+	*)
+		echo "error: invalid provider string '$provider'" >&2
+		echo "       expected format: gitlab:<group>/<project>" >&2
+		exit 1
+		;;
+esac
+
+# Verify we are inside a git repository
+git rev-parse --git-dir >/dev/null 2>&1 || {
+	echo "fatal: not a git repository" >&2
+	exit 128
+}
+
+# Check prerequisites
+command -v glab >/dev/null 2>&1 || {
+	echo "error: 'glab' (GitLab CLI) is required but not found" >&2
+	echo "       install: https://gitlab.com/gitlab-org/cli" >&2
+	echo "       brew install glab" >&2
+	exit 1
+}
+
+command -v jq >/dev/null 2>&1 || {
+	echo "error: 'jq' is required but not found" >&2
+	echo "       install: https://stedolan.github.io/jq/" >&2
+	exit 1
+}
+
+# Check glab auth
+glab auth status >/dev/null 2>&1 || {
+	echo "error: 'glab' is not authenticated. Run 'glab auth login' first." >&2
+	exit 1
+}
+
+# Build Provider-ID index from existing issues
+_import_tmpdir="$(mktemp -d)"
+trap 'rm -rf "$_import_tmpdir"' EXIT
+provider_index="$_import_tmpdir/provider-index"
+
+git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+do
+	# Walk all commits in the chain looking for Provider-ID
+	git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//' | while IFS= read -r pid
+	do
+		test -n "$pid" && printf '%s\n' "$pid"
+	done
+done > "$provider_index"
+
+# Build glab flags for state filter
+state_flags=""
+case "$state_filter" in
+	opened) state_flags="" ;; # opened is default
+	closed) state_flags="--closed" ;;
+	all)    state_flags="--all" ;;
+esac
+
+# Fetch issues list
+printf 'Fetching issues from %s...\n' "$gl_repo" >&2
+
+# Use glab to list all issues (with pagination)
+issues_json="$(glab issue list --repo "$gl_repo" $state_flags --output json --per-page 100 2>&1)" || {
+	echo "error: failed to fetch issues from gitlab:$gl_repo" >&2
+	echo "       $issues_json" >&2
+	exit 1
+}
+
+# Check if we got valid JSON
+if ! printf '%s' "$issues_json" | jq empty 2>/dev/null
+then
+	echo "error: invalid JSON response from glab" >&2
+	echo "       $issues_json" >&2
+	exit 1
+fi
+
+issue_count="$(printf '%s' "$issues_json" | jq '. | length')"
+printf 'Found %d issues\n' "$issue_count" >&2
+
+if test "$issue_count" -eq 0
+then
+	echo "No issues to import"
+	exit 0
+fi
+
+imported=0
+skipped=0
+updated=0
+
+# Get the empty tree SHA
+empty_tree="$(git hash-object -t tree /dev/null)"
+
+# Helper: find ref for a Provider-ID
+find_ref_for_provider_id() {
+	target_id="$1"
+	git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+	do
+		if git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+			sed '/^$/d' | sed 's/^[[:space:]]*//' | grep -qxF "$target_id"
+		then
+			printf '%s\n' "$ref"
+			return 0
+		fi
+	done
+}
+
+# Helper: get imported comment IDs for an issue
+get_imported_comment_ids() {
+	ref="$1"
+	git log --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//'
+}
+
+# Process each issue
+i=0
+while test "$i" -lt "$issue_count"
+do
+	iid="$(printf '%s' "$issues_json" | jq -r ".[$i].iid")"
+	provider_id="gitlab:$gl_group/$gl_project#$iid"
+
+	# Check if already imported
+	if grep -qF "$provider_id" "$provider_index" 2>/dev/null
+	then
+		# Issue exists - check for new comments to import
+		existing_ref="$(find_ref_for_provider_id "$provider_id")"
+
+		if test -z "$existing_ref"
+		then
+			skipped=$((skipped + 1))
+			i=$((i + 1))
+			continue
+		fi
+
+		# Fetch issue with comments using glab
+		issue_detail="$(glab issue view "$iid" --repo "$gl_repo" --comments --output json 2>/dev/null || echo '{}')"
+
+		# Extract notes (comments) array
+		comments_json="$(printf '%s' "$issue_detail" | jq -r '.notes // []')"
+		comment_count="$(printf '%s' "$comments_json" | jq '. | length')"
+
+		if test "$comment_count" -eq 0
+		then
+			skipped=$((skipped + 1))
+			i=$((i + 1))
+			continue
+		fi
+
+		# Get list of already-imported comment IDs
+		imported_comment_ids="$(get_imported_comment_ids "$existing_ref")"
+
+		# Find new comments
+		new_comments=0
+		parent="$(git rev-parse "$existing_ref")"
+		j=0
+
+		while test "$j" -lt "$comment_count"
+		do
+			comment_id="$(printf '%s' "$comments_json" | jq -r ".[$j].id")"
+			comment_provider_id="gitlab:$gl_group/$gl_project#note-$comment_id"
+
+			# Skip if already imported
+			if echo "$imported_comment_ids" | grep -qF "$comment_provider_id"
+			then
+				j=$((j + 1))
+				continue
+			fi
+
+			# Extract comment data
+			comment_body="$(printf '%s' "$comments_json" | jq -r ".[$j].body")"
+			comment_author_name="$(printf '%s' "$comments_json" | jq -r ".[$j].author.name")"
+			comment_author_username="$(printf '%s' "$comments_json" | jq -r ".[$j].author.username")"
+			comment_created="$(printf '%s' "$comments_json" | jq -r ".[$j].created_at")"
+
+			# Use username@gitlab.com as email
+			comment_email="${comment_author_username}@users.noreply.gitlab.com"
+
+			if test "$dry_run" -eq 1
+			then
+				printf '[DRY RUN] Would import comment %s on issue #%s\n' "$comment_id" "$iid"
+				j=$((j + 1))
+				continue
+			fi
+
+			# Create commit for comment
+			tmpfile="$(mktemp)"
+			printf '%s\n' "$comment_body" > "$tmpfile"
+
+			# Add Provider-Comment-ID trailer
+			git interpret-trailers --in-place \
+				--trailer "Provider-Comment-ID: $comment_provider_id" \
+				"$tmpfile"
+
+			tree="$empty_tree"
+			commit="$(git commit-tree "$tree" -p "$parent" -m "$(cat "$tmpfile")" \
+				--author="$comment_author_name <$comment_email>" \
+				--date="$comment_created")"
+
+			rm -f "$tmpfile"
+			parent="$commit"
+			new_comments=$((new_comments + 1))
+			j=$((j + 1))
+		done
+
+		if test "$new_comments" -gt 0
+		then
+			git update-ref "$existing_ref" "$parent"
+			printf 'Updated %s with %d new comment(s)\n' "${existing_ref#refs/issues/}" "$new_comments"
+			updated=$((updated + 1))
+		else
+			skipped=$((skipped + 1))
+		fi
+
+		i=$((i + 1))
+		continue
+	fi
+
+	# New issue - import it
+	title="$(printf '%s' "$issues_json" | jq -r ".[$i].title")"
+	description="$(printf '%s' "$issues_json" | jq -r ".[$i].description // \"\"")"
+	state="$(printf '%s' "$issues_json" | jq -r ".[$i].state")"
+	created_at="$(printf '%s' "$issues_json" | jq -r ".[$i].created_at")"
+	author_name="$(printf '%s' "$issues_json" | jq -r ".[$i].author.name")"
+	author_username="$(printf '%s' "$issues_json" | jq -r ".[$i].author.username")"
+
+	# Use username@gitlab.com as email
+	author_email="${author_username}@users.noreply.gitlab.com"
+
+	# Map GitLab state to our format
+	case "$state" in
+		opened) mapped_state="open" ;;
+		closed) mapped_state="closed" ;;
+		*) mapped_state="open" ;;
+	esac
+
+	# Extract labels (array of strings)
+	labels="$(printf '%s' "$issues_json" | jq -r ".[$i].labels | join(\",\")")"
+
+	# Extract assignees (GitLab supports multiple, we take first)
+	assignees="$(printf '%s' "$issues_json" | jq -r ".[$i].assignees // [] | .[0].name // \"\"")"
+
+	if test "$dry_run" -eq 1
+	then
+		printf '[DRY RUN] Would import issue #%s: %s\n' "$iid" "$title"
+		i=$((i + 1))
+		continue
+	fi
+
+	# Generate UUID for the issue
+	uuid="$(git var GIT_AUTHOR_IDENT | sha256sum | cut -c1-7)"
+	ref="refs/issues/$uuid"
+
+	# Create commit message with metadata
+	tmpfile="$(mktemp)"
+	{
+		printf '%s\n\n' "$title"
+		test -n "$description" && printf '%s\n' "$description"
+	} > "$tmpfile"
+
+	# Add trailers
+	git interpret-trailers --in-place \
+		--trailer "Format-Version: 1" \
+		--trailer "Provider-ID: $provider_id" \
+		--trailer "State: $mapped_state" \
+		${labels:+--trailer "Labels: $labels"} \
+		${assignees:+--trailer "Assignee: $assignees"} \
+		"$tmpfile"
+
+	# Create the issue commit
+	tree="$empty_tree"
+	commit="$(git commit-tree "$tree" -m "$(cat "$tmpfile")" \
+		--author="$author_name <$author_email>" \
+		--date="$created_at")"
+
+	git update-ref "$ref" "$commit"
+	rm -f "$tmpfile"
+
+	printf 'Imported %s: %s\n' "$uuid" "$title"
+	imported=$((imported + 1))
+	i=$((i + 1))
+done
+
+# Summary
+printf '\nImport summary:\n'
+printf '  Imported: %d\n' "$imported"
+printf '  Updated:  %d\n' "$updated"
+printf '  Skipped:  %d\n' "$skipped"
