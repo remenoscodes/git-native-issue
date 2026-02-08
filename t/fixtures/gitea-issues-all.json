@@ -1,0 +1,74 @@
+[
+  {
+    "number": 1,
+    "title": "Gitea authentication fails",
+    "state": "open",
+    "body": "When using OAuth2 authentication with Gitea, users receive error:\n\n```\nError 401: Unauthorized\n```\n\nSteps to reproduce:\n1. Configure OAuth2 provider\n2. Attempt to log in\n3. Observe authentication failure",
+    "created_at": "2025-04-01T09:00:00Z",
+    "updated_at": "2025-04-02T11:30:00Z",
+    "user": {
+      "login": "alice",
+      "full_name": "Alice Developer",
+      "email": "alice@example.com"
+    },
+    "labels": [
+      {
+        "name": "bug"
+      },
+      {
+        "name": "security"
+      }
+    ],
+    "assignee": {
+      "login": "alice",
+      "full_name": "Alice Developer",
+      "email": "alice@example.com"
+    }
+  },
+  {
+    "number": 2,
+    "title": "Add REST API v2 endpoints",
+    "state": "open",
+    "body": "We need to implement the following REST API endpoints for v2:\n\n- GET /api/v2/repos\n- POST /api/v2/repos\n- DELETE /api/v2/repos/:id\n\nThis will improve compatibility with standard Git hosting APIs.",
+    "created_at": "2025-03-15T14:00:00Z",
+    "updated_at": "2025-03-20T10:15:00Z",
+    "user": {
+      "login": "bob",
+      "full_name": "Bob Manager",
+      "email": "bob@example.com"
+    },
+    "labels": [
+      {
+        "name": "enhancement"
+      },
+      {
+        "name": "api"
+      }
+    ],
+    "assignee": null
+  },
+  {
+    "number": 3,
+    "title": "Documentation update needed",
+    "state": "closed",
+    "body": "The installation documentation needs to be updated to reflect new Docker deployment options.",
+    "created_at": "2025-02-01T08:00:00Z",
+    "updated_at": "2025-02-10T16:45:00Z",
+    "closed_at": "2025-02-10T16:45:00Z",
+    "user": {
+      "login": "charlie",
+      "full_name": "Charlie Writer",
+      "email": "charlie@example.com"
+    },
+    "labels": [
+      {
+        "name": "documentation"
+      }
+    ],
+    "assignee": {
+      "login": "charlie",
+      "full_name": "Charlie Writer",
+      "email": "charlie@example.com"
+    }
+  }
+]

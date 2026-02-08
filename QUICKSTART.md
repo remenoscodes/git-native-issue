@@ -137,6 +137,73 @@ git issue export github:owner/repo
 git issue sync github:owner/repo --state all
 ```
 
+## GitLab Bridge
+
+### Import Issues from GitLab
+
+```bash
+# Requires: glab CLI and jq
+brew install glab jq
+glab auth login
+
+# Import all open issues
+git issue import gitlab:group/project
+
+# Import from self-hosted GitLab
+git issue import gitlab:company/product \
+  --url https://gitlab.company.com \
+  --state all
+```
+
+### Export Issues to GitLab
+
+```bash
+git issue export gitlab:group/project
+```
+
+## Gitea/Forgejo Bridge
+
+### Setup Authentication
+
+```bash
+# Create token on Gitea/Forgejo instance
+# Settings → Applications → Generate New Token
+# Scopes: read:issue, read:repository (+ write:issue for export)
+
+# Store token
+mkdir -p ~/.config/git-native-issue
+echo "your-token-here" > ~/.config/git-native-issue/gitea-token
+chmod 600 ~/.config/git-native-issue/gitea-token
+```
+
+### Import Issues from Gitea
+
+```bash
+# Requires: jq
+brew install jq
+
+# Import all open issues
+git issue import gitea:owner/repo
+
+# Import from self-hosted Gitea
+git issue import gitea:company/product \
+  --url https://gitea.company.com \
+  --state all
+
+# Import from Forgejo (e.g., Codeberg.org)
+export FORGEJO_TOKEN="your-codeberg-token"
+git issue import forgejo:username/project \
+  --url https://codeberg.org \
+  --state all
+```
+
+### Export Issues to Gitea/Forgejo
+
+```bash
+git issue export gitea:owner/repo
+git issue export gitea:owner/repo --url https://gitea.company.com
+```
+
 ## What's Next?
 
 ### Learn More

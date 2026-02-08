@@ -1,0 +1,24 @@
+[
+  {
+    "id": 200,
+    "body": "I've investigated this issue. The problem appears to be in the OAuth configuration file.",
+    "created_at": "2025-04-01T12:00:00Z",
+    "updated_at": "2025-04-01T12:00:00Z",
+    "user": {
+      "login": "bob",
+      "full_name": "Bob Manager",
+      "email": "bob@example.com"
+    }
+  },
+  {
+    "id": 201,
+    "body": "Fixed by updating the OAuth configuration in app.ini:\n\n```ini\n[oauth2]\nJWT_SECRET = new_secure_secret\n```",
+    "created_at": "2025-04-02T11:30:00Z",
+    "updated_at": "2025-04-02T11:30:00Z",
+    "user": {
+      "login": "alice",
+      "full_name": "Alice Developer",
+      "email": "alice@example.com"
+    }
+  }
+]

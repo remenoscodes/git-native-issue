@@ -219,7 +219,7 @@ git issue search "bug" --state open  # Only open issues
 
 ### Platform Bridges
 
-Import and export issues from/to GitHub and GitLab. Use Git as the source of truth while maintaining compatibility with hosted platforms.
+Import and export issues from/to GitHub, GitLab, Gitea, and Forgejo. Use Git as the source of truth while maintaining compatibility with hosted platforms.
 
 #### GitHub Bridge
 
@@ -294,6 +294,61 @@ chmod 600 ~/.config/git-native-issue/gitlab-token
 - Re-importing skips already-imported issues and appends only new comments
 
 **See also:** [docs/gitlab-bridge.md](docs/gitlab-bridge.md) for detailed GitLab documentation, including migration workflows and troubleshooting.
+
+#### Gitea/Forgejo Bridge
+
+Supports Gitea and Forgejo (Gitea soft fork), including self-hosted instances. Uses Personal Access Tokens for authentication.
+
+```sh
+# Import all open issues from a Gitea repository
+git issue import gitea:owner/repo
+
+# Import from Forgejo (e.g., Codeberg.org)
+git issue import forgejo:owner/repo --url https://codeberg.org
+
+# Import from self-hosted Gitea
+git issue import gitea:company/product \
+  --url https://gitea.company.com \
+  --state all
+
+# Preview what would be imported
+git issue import gitea:owner/repo --dry-run
+
+# Export to Gitea/Forgejo
+git issue export gitea:owner/repo --url https://gitea.company.com
+
+# Two-way sync
+git issue sync gitea:owner/repo --state all
+```
+
+**Authentication:**
+
+Create a Personal Access Token with `read:issue`, `read:repository` (import) or `write:issue` (export) scopes:
+
+```sh
+# Via environment variable
+export GITEA_TOKEN="your-token-here"
+export FORGEJO_TOKEN="your-forgejo-token"  # For Forgejo instances
+
+# Or via config file (recommended)
+mkdir -p ~/.config/git-native-issue
+echo "your-token-here" > ~/.config/git-native-issue/gitea-token
+chmod 600 ~/.config/git-native-issue/gitea-token
+
+# For Forgejo
+echo "your-forgejo-token" > ~/.config/git-native-issue/forgejo-token
+chmod 600 ~/.config/git-native-issue/forgejo-token
+```
+
+**How it works:**
+
+- Uses Gitea/Forgejo REST API v1 (`/api/v1/*`)
+- No CLI tool required (unlike GitHub/GitLab bridges)
+- Requires `jq` for JSON processing
+- Supports both Gitea (try.gitea.io) and Forgejo (codeberg.org)
+- API-compatible: Forgejo maintains Gitea API compatibility
+
+**See also:** [docs/gitea-bridge.md](docs/gitea-bridge.md) for detailed Gitea/Forgejo documentation, including self-hosted setup and troubleshooting.
 
 ### AI Agent Workflows
 

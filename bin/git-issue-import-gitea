@@ -1,0 +1,467 @@
+#!/bin/sh
+#
+# git-issue-import-gitea - Import issues from Gitea/Forgejo
+#
+# Usage: git issue import gitea:<owner>/<repo> [options]
+#        git issue import forgejo:<owner>/<repo> [options]
+#
+
+set -e
+
+usage() {
+	cat <<EOF
+usage: git issue import gitea:<owner>/<repo> [options]
+       git issue import forgejo:<owner>/<repo> [options]
+
+Options:
+   --state <state>   Filter by state: open, closed, all (default: open)
+   --url <url>       Instance URL (default: https://gitea.com for gitea, https://codeberg.org for forgejo)
+   --token <token>   API token (or use GITEA_TOKEN/FORGEJO_TOKEN env var)
+   --dry-run         Show what would be imported without importing
+   -h, --help        Show this help
+
+Authentication:
+   Requires an API token with 'read:issue' scope.
+   Provide via --token flag, GITEA_TOKEN/FORGEJO_TOKEN env var, or config file:
+   ~/.config/git-native-issue/gitea-token
+   ~/.config/git-native-issue/forgejo-token
+EOF
+	exit 1
+}
+
+provider=""
+state_filter="open"
+dry_run=0
+api_url=""
+api_token=""
+platform=""
+
+while test $# -gt 0
+do
+	case "$1" in
+		--state)
+			test $# -ge 2 || { echo "error: --state requires a value" >&2; exit 1; }
+			case "$2" in
+				open|closed|all) ;;
+				*) echo "error: --state must be open, closed, or all" >&2; exit 1 ;;
+			esac
+			state_filter="$2"
+			shift 2
+			;;
+		--url)
+			test $# -ge 2 || { echo "error: --url requires a value" >&2; exit 1; }
+			api_url="$2"
+			shift 2
+			;;
+		--token)
+			test $# -ge 2 || { echo "error: --token requires a value" >&2; exit 1; }
+			api_token="$2"
+			shift 2
+			;;
+		--dry-run)
+			dry_run=1
+			shift
+			;;
+		-h|--help)
+			usage
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			echo "error: unknown option '$1'" >&2
+			usage
+			;;
+		*)
+			if test -z "$provider"
+			then
+				provider="$1"
+			fi
+			shift
+			;;
+	esac
+done
+
+if test -z "$provider"
+then
+	echo "error: provider is required (e.g., gitea:owner/repo or forgejo:owner/repo)" >&2
+	usage
+fi
+
+# Parse provider string
+case "$provider" in
+	gitea:*/*)
+		platform="gitea"
+		repo_path="${provider#gitea:}"
+		owner="${repo_path%/*}"
+		repo="${repo_path#*/}"
+		;;
+	forgejo:*/*)
+		platform="forgejo"
+		repo_path="${provider#forgejo:}"
+		owner="${repo_path%/*}"
+		repo="${repo_path#*/}"
+		;;
+	*)
+		echo "error: invalid provider string '$provider'" >&2
+		echo "       expected format: gitea:<owner>/<repo> or forgejo:<owner>/<repo>" >&2
+		exit 1
+		;;
+esac
+
+# Verify we are inside a git repository
+git rev-parse --git-dir >/dev/null 2>&1 || {
+	echo "fatal: not a git repository" >&2
+	exit 128
+}
+
+# Check prerequisites
+command -v jq >/dev/null 2>&1 || {
+	echo "error: 'jq' is required but not found" >&2
+	echo "       install: https://stedolan.github.io/jq/" >&2
+	exit 1
+}
+
+command -v curl >/dev/null 2>&1 || {
+	echo "error: 'curl' is required but not found" >&2
+	exit 1
+}
+
+# Set default API URL based on platform
+if test -z "$api_url"
+then
+	case "$platform" in
+		gitea)
+			api_url="https://gitea.com"
+			;;
+		forgejo)
+			api_url="https://codeberg.org"
+			;;
+	esac
+fi
+
+# Remove trailing slash from URL
+api_url="${api_url%/}"
+
+# Get API token from various sources
+if test -z "$api_token"
+then
+	# Try environment variables
+	if test -n "$GITEA_TOKEN"
+	then
+		api_token="$GITEA_TOKEN"
+	elif test -n "$FORGEJO_TOKEN"
+	then
+		api_token="$FORGEJO_TOKEN"
+	# Try config files
+	elif test -r "$HOME/.config/git-native-issue/gitea-token"
+	then
+		api_token="$(cat "$HOME/.config/git-native-issue/gitea-token")"
+	elif test -r "$HOME/.config/git-native-issue/forgejo-token"
+	then
+		api_token="$(cat "$HOME/.config/git-native-issue/forgejo-token")"
+	else
+		echo "error: API token required but not found" >&2
+		echo "       provide via --token, GITEA_TOKEN/FORGEJO_TOKEN env var, or config file" >&2
+		echo "       config: ~/.config/git-native-issue/gitea-token" >&2
+		exit 1
+	fi
+fi
+
+# Verify API token and auto-detect platform if needed
+version_response="$(curl -s -f -H "Authorization: token $api_token" "$api_url/api/v1/version" 2>&1)" || {
+	echo "error: failed to connect to $api_url" >&2
+	echo "       check URL and token" >&2
+	exit 1
+}
+
+# Auto-detect platform from version endpoint
+detected_platform="$(printf '%s' "$version_response" | jq -r '.version // empty' | grep -i forgejo >/dev/null 2>&1 && echo "forgejo" || echo "gitea")"
+
+# Build Provider-ID index from existing issues
+_import_tmpdir="$(mktemp -d)"
+trap 'rm -rf "$_import_tmpdir"' EXIT
+provider_index="$_import_tmpdir/provider-index"
+
+git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+do
+	# Walk all commits in the chain looking for Provider-ID
+	git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//' | while IFS= read -r pid
+	do
+		test -n "$pid" && printf '%s\n' "$pid"
+	done
+done > "$provider_index"
+
+# Build API request for state filter
+state_param=""
+case "$state_filter" in
+	open) state_param="state=open" ;;
+	closed) state_param="state=closed" ;;
+	all) state_param="state=all" ;;
+esac
+
+# Fetch issues list (paginated)
+printf 'Fetching issues from %s/%s...\n' "$owner" "$repo" >&2
+
+page=1
+per_page=100
+all_issues="[]"
+
+while true
+do
+	issues_page="$(curl -s -f -H "Authorization: token $api_token" \
+		"$api_url/api/v1/repos/$owner/$repo/issues?${state_param}&page=$page&limit=$per_page" 2>&1)" || {
+		echo "error: failed to fetch issues from $platform:$owner/$repo" >&2
+		echo "       $issues_page" >&2
+		exit 1
+	}
+
+	# Check if we got valid JSON
+	if ! printf '%s' "$issues_page" | jq empty 2>/dev/null
+	then
+		echo "error: invalid JSON response from API" >&2
+		echo "       $issues_page" >&2
+		exit 1
+	fi
+
+	page_count="$(printf '%s' "$issues_page" | jq '. | length')"
+
+	if test "$page_count" -eq 0
+	then
+		break
+	fi
+
+	# Merge this page with all issues
+	all_issues="$(printf '%s\n%s' "$all_issues" "$issues_page" | jq -s 'add')"
+
+	# If we got fewer than per_page, we're done
+	if test "$page_count" -lt "$per_page"
+	then
+		break
+	fi
+
+	page=$((page + 1))
+done
+
+issue_count="$(printf '%s' "$all_issues" | jq '. | length')"
+printf 'Found %d issues\n' "$issue_count" >&2
+
+if test "$issue_count" -eq 0
+then
+	echo "No issues to import"
+	exit 0
+fi
+
+imported=0
+skipped=0
+updated=0
+
+# Get the empty tree SHA
+empty_tree="$(git hash-object -t tree /dev/null)"
+
+# Helper: find ref for a Provider-ID
+find_ref_for_provider_id() {
+	target_id="$1"
+	git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+	do
+		if git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+			sed '/^$/d' | sed 's/^[[:space:]]*//' | grep -qxF "$target_id"
+		then
+			printf '%s\n' "$ref"
+			return 0
+		fi
+	done
+}
+
+# Helper: get imported comment IDs for an issue
+get_imported_comment_ids() {
+	ref="$1"
+	git log --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//'
+}
+
+# Process each issue
+i=0
+while test "$i" -lt "$issue_count"
+do
+	number="$(printf '%s' "$all_issues" | jq -r ".[$i].number")"
+	provider_id="$platform:$owner/$repo#$number"
+
+	# Check if already imported
+	if grep -qF "$provider_id" "$provider_index" 2>/dev/null
+	then
+		# Issue exists - check for new comments to import
+		existing_ref="$(find_ref_for_provider_id "$provider_id")"
+
+		if test -z "$existing_ref"
+		then
+			skipped=$((skipped + 1))
+			i=$((i + 1))
+			continue
+		fi
+
+		# Fetch comments for this issue
+		comments_json="$(curl -s -f -H "Authorization: token $api_token" \
+			"$api_url/api/v1/repos/$owner/$repo/issues/$number/comments" 2>/dev/null || echo '[]')"
+
+		comment_count="$(printf '%s' "$comments_json" | jq '. | length')"
+
+		if test "$comment_count" -eq 0
+		then
+			skipped=$((skipped + 1))
+			i=$((i + 1))
+			continue
+		fi
+
+		# Get list of already-imported comment IDs
+		imported_comment_ids="$(get_imported_comment_ids "$existing_ref")"
+
+		# Find new comments
+		new_comments=0
+		parent="$(git rev-parse "$existing_ref")"
+		j=0
+
+		while test "$j" -lt "$comment_count"
+		do
+			comment_id="$(printf '%s' "$comments_json" | jq -r ".[$j].id")"
+			comment_provider_id="$platform:$owner/$repo#comment-$comment_id"
+
+			# Skip if already imported
+			if echo "$imported_comment_ids" | grep -qF "$comment_provider_id"
+			then
+				j=$((j + 1))
+				continue
+			fi
+
+			# Extract comment data
+			comment_body="$(printf '%s' "$comments_json" | jq -r ".[$j].body")"
+			comment_author_name="$(printf '%s' "$comments_json" | jq -r ".[$j].user.full_name // .[$j].user.login")"
+			comment_author_username="$(printf '%s' "$comments_json" | jq -r ".[$j].user.login")"
+			comment_created="$(printf '%s' "$comments_json" | jq -r ".[$j].created_at")"
+
+			# Use username@platform as email
+			comment_email="${comment_author_username}@users.noreply.${platform}.com"
+
+			if test "$dry_run" -eq 1
+			then
+				printf '[DRY RUN] Would import comment %s on issue #%s\n' "$comment_id" "$number"
+				j=$((j + 1))
+				continue
+			fi
+
+			# Create commit for comment
+			tmpfile="$(mktemp)"
+			printf '%s\n' "$comment_body" > "$tmpfile"
+
+			# Add Provider-Comment-ID trailer
+			git interpret-trailers --in-place \
+				--trailer "Provider-Comment-ID: $comment_provider_id" \
+				"$tmpfile"
+
+			tree="$empty_tree"
+			commit="$(GIT_AUTHOR_NAME="$comment_author_name" \
+				GIT_AUTHOR_EMAIL="$comment_email" \
+				GIT_AUTHOR_DATE="$comment_created" \
+				git commit-tree "$tree" -p "$parent" -m "$(cat "$tmpfile")")"
+
+			rm -f "$tmpfile"
+			parent="$commit"
+			new_comments=$((new_comments + 1))
+			j=$((j + 1))
+		done
+
+		if test "$new_comments" -gt 0
+		then
+			git update-ref "$existing_ref" "$parent"
+			printf 'Updated %s with %d new comment(s)\n' "${existing_ref#refs/issues/}" "$new_comments"
+			updated=$((updated + 1))
+		else
+			skipped=$((skipped + 1))
+		fi
+
+		i=$((i + 1))
+		continue
+	fi
+
+	# New issue - import it
+	title="$(printf '%s' "$all_issues" | jq -r ".[$i].title")"
+	body="$(printf '%s' "$all_issues" | jq -r ".[$i].body // \"\"")"
+	state="$(printf '%s' "$all_issues" | jq -r ".[$i].state")"
+	created_at="$(printf '%s' "$all_issues" | jq -r ".[$i].created_at")"
+	author_name="$(printf '%s' "$all_issues" | jq -r ".[$i].user.full_name // .[$i].user.login")"
+	author_username="$(printf '%s' "$all_issues" | jq -r ".[$i].user.login")"
+
+	# Use username@platform as email
+	author_email="${author_username}@users.noreply.${platform}.com"
+
+	# Map state to our format
+	case "$state" in
+		open) mapped_state="open" ;;
+		closed) mapped_state="closed" ;;
+		*) mapped_state="open" ;;
+	esac
+
+	# Extract labels (array of objects with 'name' field)
+	labels="$(printf '%s' "$all_issues" | jq -r ".[$i].labels | map(.name) | join(\",\")")"
+
+	# Extract assignees (Gitea/Forgejo support multiple, we take first)
+	assignees="$(printf '%s' "$all_issues" | jq -r ".[$i].assignees // [] | .[0].full_name // .[0].login // \"\"")"
+
+	if test "$dry_run" -eq 1
+	then
+		printf '[DRY RUN] Would import issue #%s: %s\n' "$number" "$title"
+		i=$((i + 1))
+		continue
+	fi
+
+	# Generate UUID for the issue
+	if command -v uuidgen >/dev/null 2>&1
+	then
+		uuid="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+	elif test -r /proc/sys/kernel/random/uuid
+	then
+		uuid="$(cat /proc/sys/kernel/random/uuid)"
+	else
+		# Fallback: generate from random bytes
+		uuid="$(od -An -tx1 -N 16 /dev/urandom | tr -d ' \n' | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/')"
+	fi
+	ref="refs/issues/$uuid"
+
+	# Create commit message with metadata
+	tmpfile="$(mktemp)"
+	{
+		printf '%s\n\n' "$title"
+		test -n "$body" && printf '%s\n' "$body"
+	} > "$tmpfile"
+
+	# Add trailers
+	git interpret-trailers --in-place \
+		--trailer "Format-Version: 1" \
+		--trailer "Provider-ID: $provider_id" \
+		--trailer "State: $mapped_state" \
+		${labels:+--trailer "Labels: $labels"} \
+		${assignees:+--trailer "Assignee: $assignees"} \
+		"$tmpfile"
+
+	# Create the issue commit
+	tree="$empty_tree"
+	commit="$(GIT_AUTHOR_NAME="$author_name" \
+		GIT_AUTHOR_EMAIL="$author_email" \
+		GIT_AUTHOR_DATE="$created_at" \
+		git commit-tree "$tree" -m "$(cat "$tmpfile")")"
+
+	git update-ref "$ref" "$commit"
+	rm -f "$tmpfile"
+
+	printf 'Imported %s: %s\n' "$uuid" "$title"
+	imported=$((imported + 1))
+	i=$((i + 1))
+done
+
+# Summary
+printf '\nImport summary:\n'
+printf '  Imported: %d\n' "$imported"
+printf '  Updated:  %d\n' "$updated"
+printf '  Skipped:  %d\n' "$skipped"

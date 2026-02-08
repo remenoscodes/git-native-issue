@@ -12,6 +12,8 @@ usage: git issue export <provider> [options]
 Supported providers:
    github:<owner>/<repo>        GitHub repository
    gitlab:<group>/<project>     GitLab project
+   gitea:<owner>/<repo>         Gitea repository
+   forgejo:<owner>/<repo>       Forgejo repository
 
 Options:
    --dry-run         Show what would be exported without exporting
@@ -80,9 +82,25 @@ case "$provider" in
 			exec "$ISSUE_BIN_DIR/git-issue-export-gitlab" "$provider"
 		fi
 		;;
+	gitea:*/*)
+		if test "$dry_run" -eq 1
+		then
+			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider" --dry-run
+		else
+			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider"
+		fi
+		;;
+	forgejo:*/*)
+		if test "$dry_run" -eq 1
+		then
+			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider" --dry-run
+		else
+			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider"
+		fi
+		;;
 	*)
 		echo "error: unsupported or invalid provider '$provider'" >&2
-		echo "       supported: github:<owner>/<repo>, gitlab:<group>/<project>" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<group>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>" >&2
 		exit 1
 		;;
 esac

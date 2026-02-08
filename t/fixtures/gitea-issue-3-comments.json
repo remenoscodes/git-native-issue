@@ -1,0 +1,13 @@
+[
+  {
+    "id": 300,
+    "body": "Documentation has been updated in PR #42. Closing this issue.",
+    "created_at": "2025-02-10T16:45:00Z",
+    "updated_at": "2025-02-10T16:45:00Z",
+    "user": {
+      "login": "charlie",
+      "full_name": "Charlie Writer",
+      "email": "charlie@example.com"
+    }
+  }
+]

@@ -12,6 +12,8 @@ usage: git issue import <provider> [options]
 Supported providers:
    github:<owner>/<repo>        GitHub repository
    gitlab:<group>/<project>     GitLab project
+   gitea:<owner>/<repo>         Gitea repository
+   forgejo:<owner>/<repo>       Forgejo repository
 
 Options:
    --state <state>   Filter by state (default: open/opened)
@@ -94,9 +96,25 @@ case "$provider" in
 			exec "$ISSUE_BIN_DIR/git-issue-import-gitlab" "$provider" ${gitlab_state:+--state "$gitlab_state"}
 		fi
 		;;
+	gitea:*/*)
+		if test "$dry_run" -eq 1
+		then
+			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"} --dry-run
+		else
+			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"}
+		fi
+		;;
+	forgejo:*/*)
+		if test "$dry_run" -eq 1
+		then
+			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"} --dry-run
+		else
+			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"}
+		fi
+		;;
 	*)
 		echo "error: unsupported or invalid provider '$provider'" >&2
-		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>" >&2
 		exit 1
 		;;
 esac
