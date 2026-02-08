@@ -69,6 +69,33 @@ git issue state abc123 --close -m "False positive - mutex exists"
 
 Your agent's work is now tracked, versioned, and synced with your code.
 
+## Platform Migration Made Trivial (The Enterprise Pain Point)
+
+**The Problem:** Companies spend weeks building fragile scripts to migrate issues between platforms. History gets lost. Timestamps break. Comments lose formatting. GitHub's official "import issues" API is rate-limited and lossy. GitLab's importer drops metadata. There's no universal solution.
+
+**Our Solution:** Git is the universal format.
+
+```sh
+# Migrate 1000+ issues from GitHub to GitLab in 2 commands
+git issue import github:oldorg/oldrepo
+git issue export gitlab:neworg/newrepo
+```
+
+**What gets preserved:**
+- ✅ Full comment history with original timestamps
+- ✅ Issue state (open/closed)
+- ✅ Labels and metadata
+- ✅ Markdown formatting
+- ✅ Author attribution
+
+**Real-world scenarios:**
+- **Compliance migrations**: GitHub Enterprise → GitLab self-hosted
+- **Cost optimization**: GitHub Teams → Gitea (open source)
+- **Vendor independence**: Any platform → Git → any other platform
+- **Backup & archival**: Export to Git refs, sync to any Git host
+
+Because issues live in Git, they're portable by default. Your issues travel with your code, forever.
+
 ## Production-Ready
 
 - **153 tests** covering core functionality (76), GitHub bridge (36), merge rules (20), and quality-of-life features (21)
