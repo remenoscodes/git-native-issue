@@ -169,7 +169,7 @@ run_test
 root="$(git rev-list --max-parents=0 "$issue1_ref")"
 pid="$(git log -1 --format='%(trailers:key=Provider-ID,valueonly)' "$root" | sed '/^$/d')"
 pid="$(printf '%s' "$pid" | sed 's/^[[:space:]]*//')"
-if test "$pid" = "gitea:testowner/testrepo --url https://gitea.example.com#1"
+if test "$pid" = "gitea:testowner/testrepo#1"
 then
 	pass "imported issue has correct Provider-ID trailer (Gitea format)"
 else
@@ -276,7 +276,7 @@ esac
 run_test
 pcid="$(git log -1 --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$head_commit" | sed '/^$/d')"
 pcid="$(printf '%s' "$pcid" | sed 's/^[[:space:]]*//')"
-if test "$pcid" = "gitea:testowner/testrepo --url https://gitea.example.com#comment-201"
+if test "$pcid" = "gitea:testowner/testrepo#comment-201"
 then
 	pass "comment has correct Provider-Comment-ID trailer"
 else
