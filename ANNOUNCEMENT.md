@@ -120,11 +120,12 @@ Since v1.0.0, we've added:
 This is v1.0.2 — a production-ready implementation with a stable format specification. Our roadmap:
 
 1. **Submit ISSUE-FORMAT.md to the Git community** for review and potential inclusion in official Git documentation
-2. **Enable interoperability** by documenting the format so other tools can implement it
-3. **Ecosystem adoption** — work with hosting platforms to add native `refs/issues/*` support
-4. **Second implementation** — Python or Go implementation to validate format spec
+2. **C or Rust implementation** — validates the format spec and provides a path to `contrib/git-issue/` in git.git
+3. **Contribute to git.git** — submit as a contrib tool (following the path of git-subtree, git-worktree)
+4. **Ecosystem adoption** — work with hosting platforms to add native `refs/issues/*` support
+5. **Graduate to builtin** — eventual integration as a core Git command
 
-We're starting with a standalone tool and a solid spec. The goal is to make distributed issue tracking as foundational as distributed version control.
+We're starting with a standalone tool and a solid spec. The end goal: make distributed issue tracking as foundational as distributed version control, integrated directly into Git itself.
 
 ## Links
 

@@ -174,6 +174,32 @@ resolve_user() {
 
 tmpfile="$_import_tmpdir/msg"
 
+# Helper: find local ref for a Provider-ID
+find_ref_for_provider_id() {
+	pid="$1"
+	git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+	do
+		if git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | grep -qF "$pid"
+		then
+			printf '%s\n' "$ref"
+			return 0
+		fi
+	done
+	# Don't return 1 here - just return 0 with empty output
+	# (set -e would kill script otherwise)
+	return 0
+}
+
+# Helper: get all GitHub comment IDs already imported for an issue
+get_imported_comment_ids() {
+	ref="$1"
+	git log --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//'
+}
+
+updated=0
+
+
 for number in $issue_numbers
 do
 	provider_id="github:$gh_owner/$gh_reponame#$number"
@@ -181,7 +207,107 @@ do
 	# Check if already imported
 	if grep -qF "$provider_id" "$provider_index" 2>/dev/null
 	then
-		skipped=$((skipped + 1))
+		# Issue exists - check for new comments to import
+		existing_ref="$(find_ref_for_provider_id "$provider_id")"
+
+		if test -z "$existing_ref"
+		then
+			# Provider-ID in index but ref not found (shouldn't happen)
+			skipped=$((skipped + 1))
+			continue
+		fi
+
+		# Fetch comments from GitHub
+		comments_json="$(gh api --paginate "/repos/$gh_owner/$gh_reponame/issues/$number/comments?per_page=100" 2>/dev/null || echo '[]')"
+		comment_count="$(printf '%s' "$comments_json" | jq '. | length')"
+
+		if test "$comment_count" -eq 0
+		then
+			# No comments on GitHub
+			skipped=$((skipped + 1))
+			continue
+		fi
+
+		# Get list of already-imported comment IDs
+		imported_comment_ids="$(get_imported_comment_ids "$existing_ref")"
+
+		# Find new comments (not in imported list)
+		new_comments=0
+		parent="$(git rev-parse "$existing_ref")"
+		i=0
+
+		while test "$i" -lt "$comment_count"
+		do
+			comment_id="$(printf '%s' "$comments_json" | jq -r ".[$i].id")"
+			comment_provider_id="github:$gh_owner/$gh_reponame#comment-$comment_id"
+
+			# Skip if already imported
+			if echo "$imported_comment_ids" | grep -qF "$comment_provider_id"
+			then
+				i=$((i + 1))
+				continue
+			fi
+
+			# New comment - import it
+			comment_body="$(printf '%s' "$comments_json" | jq -r ".[$i].body // \"\"")"
+			comment_date="$(printf '%s' "$comments_json" | jq -r ".[$i].created_at")"
+			comment_login="$(printf '%s' "$comments_json" | jq -r ".[$i].user.login")"
+
+			comment_info="$(resolve_user "$comment_login")"
+			comment_name="$(printf '%s' "$comment_info" | head -1)"
+			comment_email="$(printf '%s' "$comment_info" | tail -1)"
+
+			# Split comment into subject and body
+			first_line="$(printf '%s\n' "$comment_body" | head -1)"
+			remaining="$(printf '%s\n' "$comment_body" | tail -n +2)"
+
+			if test ${#first_line} -gt 72
+			then
+				comment_subject="$(printf '%.69s...' "$first_line")"
+				printf '%s\n\n%s\n' "$comment_subject" "$comment_body" > "$tmpfile"
+			elif test -n "$remaining"
+			then
+				printf '%s\n\n%s\n' "$first_line" "$remaining" > "$tmpfile"
+			else
+				printf '%s\n' "$first_line" > "$tmpfile"
+			fi
+
+			# Add Provider-Comment-ID trailer
+			git interpret-trailers --in-place --trailer "Provider-Comment-ID: $comment_provider_id" "$tmpfile"
+
+			if test "$dry_run" -eq 0
+			then
+				new_commit="$(GIT_AUTHOR_NAME="$comment_name" \
+					GIT_AUTHOR_EMAIL="$comment_email" \
+					GIT_AUTHOR_DATE="$comment_date" \
+					git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
+
+				parent="$new_commit"
+				new_comments=$((new_comments + 1))
+			fi
+
+			i=$((i + 1))
+		done
+
+		if test "$new_comments" -gt 0
+		then
+			if test "$dry_run" -eq 1
+			then
+				short_id="$(basename "$existing_ref" | cut -c1-7)"
+				printf '[dry-run] Would update %s with %d new comment(s) from #%s\n' "$short_id" "$new_comments" "$number"
+			else
+				# Update ref to new head
+				old_head="$(git rev-parse "$existing_ref")"
+				git update-ref "$existing_ref" "$parent" "$old_head"
+
+				short_id="$(basename "$existing_ref" | cut -c1-7)"
+				printf 'Updated %s with %d new comment(s) from #%s\n' "$short_id" "$new_comments" "$number"
+				updated=$((updated + 1))
+			fi
+		else
+			skipped=$((skipped + 1))
+		fi
+
 		continue
 	fi
 
@@ -280,6 +406,7 @@ $body"
 	i=0
 	while test "$i" -lt "$comment_count"
 	do
+		comment_id="$(printf '%s' "$comments_json" | jq -r ".[$i].id")"
 		comment_body="$(printf '%s' "$comments_json" | jq -r ".[$i].body // \"\"")"
 		comment_date="$(printf '%s' "$comments_json" | jq -r ".[$i].created_at")"
 		comment_login="$(printf '%s' "$comments_json" | jq -r ".[$i].user.login")"
@@ -305,6 +432,10 @@ $body"
 			# Short single-line: just subject
 			printf '%s\n' "$first_line" > "$tmpfile"
 		fi
+
+		# Add Provider-Comment-ID trailer for tracking
+		comment_provider_id="github:$gh_owner/$gh_reponame#comment-$comment_id"
+		git interpret-trailers --in-place --trailer "Provider-Comment-ID: $comment_provider_id" "$tmpfile"
 
 		new_commit="$(GIT_AUTHOR_NAME="$comment_name" \
 			GIT_AUTHOR_EMAIL="$comment_email" \
@@ -340,4 +471,9 @@ $body"
 	printf 'Imported #%s as %s: %s\n' "$number" "$short_id" "$title"
 done
 
-printf 'Imported %d issues (%d skipped)\n' "$imported" "$skipped"
+if test "$updated" -gt 0
+then
+	printf 'Imported %d issues, updated %d issues (%d skipped)\n' "$imported" "$updated" "$skipped"
+else
+	printf 'Imported %d issues (%d skipped)\n' "$imported" "$skipped"
+fi
