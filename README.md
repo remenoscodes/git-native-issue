@@ -143,7 +143,7 @@ yay -S git-native-issue      # Coming soon
 
 ```bash
 git issue version
-# git-issue version 1.0.1
+# git-issue version 1.0.2
 ```
 
 ## Commands
