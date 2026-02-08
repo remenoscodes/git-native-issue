@@ -12,20 +12,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `git issue import gitlab:group/project` - Import issues from GitLab
   - `git issue export gitlab:group/project` - Export issues to GitLab
   - `git issue sync gitlab:group/project` - Bidirectional synchronization
+  - Uses `glab` CLI (official GitLab CLI) for authentication and API access
+  - Authentication via `glab auth login` (consistent with GitHub bridge)
   - Support for gitlab.com and self-hosted GitLab instances
-  - GitLab PAT authentication via ~/.config/git-native-issue/gitlab-token or GITLAB_TOKEN env var
-  - Provider-ID format: `gitlab:group/project#123`
+  - Provider-ID format: `gitlab:group/project#iid`
   - Idempotent operations with Exported-Commit tracking (no duplicates)
+  - Bidirectional comment sync with Provider-Comment-ID tracking
+
+### Changed
+- **Refactored bridge architecture** - Provider-specific scripts for maintainability
+  - bin/git-issue-import-github: GitHub import implementation
+  - bin/git-issue-import-gitlab: GitLab import implementation
+  - bin/git-issue-export-github: GitHub export implementation
+  - bin/git-issue-export-gitlab: GitLab export implementation
+  - bin/git-issue-{import,export,sync}: Routers delegate to provider scripts
 
 ### Testing
-- GitLab bridge test suite (t/test-gitlab-bridge.sh)
+- GitLab bridge test suite: 30+ comprehensive tests (t/test-gitlab-bridge.sh)
 - Migration test: GitHub → Git → GitLab roundtrip validation
 - Idempotency verification (multiple syncs produce identical results)
+- Unicode, edge cases, dry-run, error handling coverage
+- Mock glab CLI for isolated testing
 
 ### Documentation
 - GitLab bridge setup guide (docs/gitlab-bridge.md)
-- Platform migration guide (GitHub ↔ GitLab)
-- Updated README with GitLab examples
+- Platform migration guide (docs/migration-guide.md)
+  - GitHub ↔ GitLab enterprise migration workflows
+  - Multi-platform sync strategies
+  - Disaster recovery scenarios
+- Updated README with GitLab bridge section
+
+### Fixed
+- git commit-tree syntax: Use environment variables (GIT_AUTHOR_*) instead of --author/--date flags
+- Router dry-run parameter expansion bug
 
 ## [1.0.3] - 2026-02-11
 
