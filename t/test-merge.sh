@@ -590,17 +590,17 @@ case "$output" in
 esac
 
 # ============================================================
-# TEST: version shows 1.0.2
+# TEST: version shows 1.1.0
 # ============================================================
 run_test
 setup_repo
 output="$(git issue version 2>&1)"
 case "$output" in
-	*"1.0.2"*)
-		pass "version shows 1.0.2"
+	*"1.1.0"*)
+		pass "version shows 1.1.0"
 		;;
 	*)
-		fail "version shows 1.0.2" "got: $output"
+		fail "version shows 1.1.0" "got: $output"
 		;;
 esac
 
