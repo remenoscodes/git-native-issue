@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-02-08
+
 ### Added
 - **GitLab bridge** - Import, export, and sync issues with GitLab
   - `git issue import gitlab:group/project` - Import issues from GitLab
@@ -43,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Updated README with GitLab bridge section
 
 ### Fixed
+- **CRITICAL**: GitLab import UUID generation (caused duplicate refs and idempotency failures)
+  - Root cause: Used static value for UUID generation, creating identical UUIDs
+  - Impact: Re-syncing caused exponential growth of refs (3→4→5...)
+  - Fix: Use proper UUID generation (uuidgen) like GitHub import
 - git commit-tree syntax: Use environment variables (GIT_AUTHOR_*) instead of --author/--date flags
 - Router dry-run parameter expansion bug
 
@@ -122,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.1.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.2...v1.0.3
 [1.0.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.1...v1.0.2
 [1.0.1]: https://github.com/remenoscodes/git-native-issue/releases/tag/v1.0.1
