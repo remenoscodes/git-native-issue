@@ -477,12 +477,13 @@ This project builds on lessons from 10+ previous attempts:
 
 | Tool | Year | Status | Key Lesson |
 |------|------|--------|-----------|
+| Fossil | 2006 | Active | Proves CRDT-based append-only model works |
 | Bugs Everywhere | 2005 | Dead | File-based storage creates merge conflicts |
 | ticgit | 2008 | Dead | Creator (Scott Chacon) built GitHub instead |
 | git-appraise | 2015 | Dead | `refs/notes/` model is elegant but needs ecosystem support |
+| git-issue (Spinellis) | 2016 | Active | Simple shell-based approach works; ~500 lines, pragmatic |
 | git-dit | 2016 | Dead | Commits + trailers works (validated our approach) |
 | git-bug | 2018 | Active | CRDTs are overkill; missing format spec |
-| Fossil | 2006 | Active | Proves CRDT-based append-only model works |
 
 **What's different this time**: The format spec. No previous tool
 produced a standalone, implementable specification. Every tool's
