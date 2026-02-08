@@ -251,7 +251,7 @@ gh auth login            # authenticate with GitHub
 
 #### GitLab Bridge
 
-Supports both GitLab.com and self-hosted instances. Requires `jq` and `curl`.
+Supports both GitLab.com and self-hosted instances. Requires `glab` (GitLab CLI) and `jq`.
 
 ```sh
 # Import all open issues from a GitLab project

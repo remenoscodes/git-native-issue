@@ -29,53 +29,73 @@ git issue sync gitlab:group/project --state all
 
 ## Authentication
 
-GitLab bridge requires a **Personal Access Token (PAT)** with API access.
+GitLab bridge uses the **`glab` CLI** (official GitLab CLI) for authentication, providing a consistent experience with the GitHub bridge (`gh`).
 
-### Creating a PAT
+### Prerequisites
 
-1. Go to your GitLab profile: **Settings** → **Access Tokens**
-2. Create a new token with these scopes:
-   - **`read_api`** - Required for importing issues
-   - **`api`** - Required for exporting issues (includes read_api)
-3. Copy the token (you won't see it again)
-
-**Recommendation:** Use `api` scope if you plan to both import and export. Use `read_api` if you only need imports (read-only operations).
-
-### Providing the Token
-
-Three methods (checked in order):
-
-#### 1. Command-line flag (highest priority)
+Install the GitLab CLI if not already installed:
 
 ```bash
-git issue import gitlab:group/project --token glpat-xxxxxxxxxxxxxxxxxxxx
+# macOS
+brew install glab
+
+# Linux (Debian/Ubuntu)
+sudo apt install glab
+
+# Linux (Fedora/RHEL)
+sudo dnf install glab
+
+# Linux (manual install)
+# See: https://gitlab.com/gitlab-org/cli#installation
 ```
 
-**Caution:** This exposes the token in shell history and process lists. Use only for testing.
+### Authenticate with GitLab
 
-#### 2. Environment variable
+Run the authentication flow once per GitLab instance:
+
+#### GitLab.com (default)
 
 ```bash
-export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
-git issue import gitlab:group/project
+glab auth login
 ```
 
-Add to `~/.zshrc` or `~/.bashrc` for persistent configuration:
+This will:
+1. Open your browser to GitLab.com
+2. Prompt you to authorize the CLI
+3. Save credentials securely in your system keychain
+
+#### Self-Hosted GitLab
 
 ```bash
-# GitLab API token for git-native-issue
-export GITLAB_TOKEN="glpat-xxxxxxxxxxxxxxxxxxxx"
+glab auth login --hostname gitlab.company.com
 ```
 
-#### 3. Config file (recommended)
+Replace `gitlab.company.com` with your GitLab instance URL.
+
+### Verify Authentication
+
+Check that authentication succeeded:
 
 ```bash
-mkdir -p ~/.config/git-native-issue
-echo "glpat-xxxxxxxxxxxxxxxxxxxx" > ~/.config/git-native-issue/gitlab-token
-chmod 600 ~/.config/git-native-issue/gitlab-token
+glab auth status
 ```
 
-This keeps the token out of shell history and environment variables, which may leak into logs.
+You should see:
+```
+✓ Logged in to gitlab.com as username (PRIVATE-TOKEN)
+✓ Active account: true
+```
+
+### Multiple GitLab Instances
+
+You can authenticate to multiple GitLab instances (e.g., GitLab.com + self-hosted):
+
+```bash
+glab auth login                                    # GitLab.com
+glab auth login --hostname gitlab.company.com      # Self-hosted instance
+```
+
+When using git-native-issue, it will automatically use the correct credentials based on the project URL.
 
 ## Import
 
@@ -295,23 +315,35 @@ git issue import gitlab:engineering/backend \
 
 **Self-signed certificates:**
 
-If your instance uses self-signed SSL certificates, curl will reject the connection. Workaround:
+If your instance uses self-signed SSL certificates, `glab` may reject the connection. Solutions:
 
-```bash
-# Insecure (not recommended for production)
-export GIT_SSL_NO_VERIFY=true
-git issue import gitlab:group/project --url https://gitlab.company.com
-```
+1. **Add certificate to system trust store** (recommended):
+   ```bash
+   # macOS
+   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain cert.pem
 
-Better solution: Add the certificate to your system trust store.
+   # Linux
+   sudo cp cert.pem /usr/local/share/ca-certificates/gitlab.crt
+   sudo update-ca-certificates
+   ```
+
+2. **Temporary workaround** (not recommended for production):
+   ```bash
+   # Skip SSL verification (insecure!)
+   export GIT_SSL_NO_VERIFY=true
+   glab auth login --hostname gitlab.company.com
+   ```
 
 **Firewall/VPN:**
 
 If the instance is behind a corporate firewall, ensure your machine can reach it:
 
 ```bash
-curl -I https://gitlab.company.com
-# Should return HTTP 200 or 302, not connection refused
+# Test connectivity
+glab auth status
+
+# Or test the API directly
+glab api version
 ```
 
 **API v4:**
@@ -409,59 +441,60 @@ This keeps a Git remote in sync with GitLab issues automatically.
 
 ## Troubleshooting
 
-### "error: GitLab token not found"
+### "error: 'glab' is not authenticated. Run 'glab auth login' first."
 
-**Cause:** No token provided via `--token`, `GITLAB_TOKEN`, or config file.
+**Cause:** You haven't authenticated with GitLab yet.
 
 **Solution:**
 
-```bash
-# Quick test
-git issue import gitlab:group/project --token glpat-xxxxxxxxxxxxxxxxxxxx
+Authenticate with the GitLab CLI:
 
-# Persistent (recommended)
-mkdir -p ~/.config/git-native-issue
-echo "glpat-xxxxxxxxxxxxxxxxxxxx" > ~/.config/git-native-issue/gitlab-token
-chmod 600 ~/.config/git-native-issue/gitlab-token
+```bash
+# For GitLab.com
+glab auth login
+
+# For self-hosted GitLab
+glab auth login --hostname gitlab.company.com
+```
+
+Verify authentication:
+
+```bash
+glab auth status
 ```
 
 ### "error: GitLab API returned error: 401 Unauthorized"
 
-**Cause:** Token is invalid, expired, or lacks required scope.
+**Cause:** Authentication expired or was revoked.
 
 **Solution:**
 
-1. Verify token is correct (check for copy/paste errors)
-2. Ensure token hasn't expired (GitLab PATs can have expiration dates)
-3. Check token scope:
-   - Import requires `read_api`
-   - Export requires `api`
-4. Create a new token if needed
-
-Test the token manually:
+Re-authenticate with GitLab:
 
 ```bash
-curl -H "PRIVATE-TOKEN: glpat-xxxxxxxxxxxxxxxxxxxx" \
-  https://gitlab.com/api/v4/user
-# Should return your user info, not 401
+glab auth login
 ```
+
+If the issue persists, check your GitLab access tokens in **Settings** → **Access Tokens** and revoke any that look suspicious, then re-authenticate.
 
 ### "error: GitLab API returned error: 404 Not Found"
 
-**Cause:** Project doesn't exist, or token lacks access.
+**Cause:** Project doesn't exist, or you lack access.
 
 **Solution:**
 
 1. Verify project path: `gitlab:group/project` (not `gitlab:user/project` for personal repos)
-2. Check if project is private - token must have access
+2. Check if project is private - you must be a member
 3. For personal projects, use your username: `gitlab:username/repo`
 
 Test project access:
 
 ```bash
-curl -H "PRIVATE-TOKEN: glpat-xxxxxxxxxxxxxxxxxxxx" \
-  https://gitlab.com/api/v4/projects/group%2Fproject
-# Should return project info, not 404
+# List your accessible projects
+glab repo list
+
+# View specific project
+glab repo view group/project
 ```
 
 Note the URL encoding: `group/project` becomes `group%2Fproject` in the API URL.
@@ -486,21 +519,32 @@ sudo dnf install jq
 sudo pacman -S jq
 ```
 
-### "error: 'curl' is required but not found"
+### "error: 'glab' (GitLab CLI) is required but not found"
 
-**Cause:** `curl` is not installed (rare - usually pre-installed).
+**Cause:** `glab` is not installed.
 
 **Solution:**
 
+Install the GitLab CLI:
+
 ```bash
+# macOS
+brew install glab
+
 # Debian/Ubuntu
-sudo apt install curl
+sudo apt install glab
 
 # Fedora/RHEL
-sudo dnf install curl
+sudo dnf install glab
 
-# macOS (pre-installed, but if missing)
-brew install curl
+# Manual installation
+# See: https://gitlab.com/gitlab-org/cli#installation
+```
+
+After installation, authenticate:
+
+```bash
+glab auth login
 ```
 
 ### Import Hangs or Times Out
