@@ -166,6 +166,81 @@ do
 					continue
 				fi
 
+				# Get existing GitHub comment IDs
+				gh_comments_json="$(gh api --paginate "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments?per_page=100" 2>/dev/null || echo '[]')"
+				gh_comment_ids="$(printf '%s' "$gh_comments_json" | jq -r '.[].id' | sed 's/^/github:'"$gh_owner\/$gh_reponame"'#comment-/')"
+
+				# Get root commit
+				root="$(git rev-list --max-parents=0 "$ref")"
+
+				# Export new comments (comments without Provider-Comment-ID in GitHub)
+				issue_head="$(git rev-parse "$ref")"
+				commits="$(git rev-list --reverse "$root..$ref")"
+				new_comments_exported=0
+
+				for cmt in $commits
+				do
+					# Get Provider-Comment-ID from this commit
+					cmt_provider_comment_id="$(git log -1 --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$cmt" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
+
+					# Skip if this comment is already on GitHub
+					if test -n "$cmt_provider_comment_id" && echo "$gh_comment_ids" | grep -qF "$cmt_provider_comment_id"
+					then
+						continue
+					fi
+
+					# Skip commits with State trailer (metadata changes, not comments)
+					cmt_state_trailer="$(git log -1 --format='%(trailers:key=State,valueonly)' "$cmt" | sed '/^$/d')"
+					if test -n "$cmt_state_trailer"
+					then
+						continue
+					fi
+
+					# Skip commits with Provider-ID trailer (export record commits)
+					cmt_provider_id="$(git log -1 --format='%(trailers:key=Provider-ID,valueonly)' "$cmt" | sed '/^$/d')"
+					if test -n "$cmt_provider_id" && test "$cmt_provider_id" = "$existing_pid"
+					then
+						continue
+					fi
+
+					# This is a comment commit - export it
+					cmt_subject="$(git log -1 --format='%s' "$cmt")"
+					cmt_body_full="$(git log -1 --format='%b' "$cmt")"
+
+					# Strip trailers from body
+					cmt_body=""
+					if test -n "$cmt_body_full"
+					then
+						cmt_trailers="$(printf '%s\n' "$cmt_body_full" | git interpret-trailers --parse 2>/dev/null)" || cmt_trailers=""
+						if test -n "$cmt_trailers"
+						then
+							n_trailers="$(printf '%s\n' "$cmt_trailers" | wc -l | tr -d ' ')"
+							n_body="$(printf '%s\n' "$cmt_body_full" | wc -l | tr -d ' ')"
+							n_keep=$((n_body - n_trailers - 1))
+							if test "$n_keep" -gt 0
+							then
+								cmt_body="$(printf '%s\n' "$cmt_body_full" | head -n "$n_keep")"
+							fi
+						else
+							cmt_body="$cmt_body_full"
+						fi
+					fi
+
+					comment_text="$cmt_subject"
+					if test -n "$cmt_body"
+					then
+						comment_text="$comment_text
+
+$cmt_body"
+					fi
+
+					# Post comment to GitHub
+					gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
+						-f body="$comment_text" >/dev/null 2>&1 || true
+
+					new_comments_exported=$((new_comments_exported + 1))
+				done
+
 				# Sync state
 				case "$state" in
 					open)   gh_state="open" ;;
@@ -177,7 +252,12 @@ do
 					-f state="$gh_state" >/dev/null 2>&1 || true
 
 				synced=$((synced + 1))
-				printf 'Synced %s with #%s\n' "$short_id" "$issue_number"
+				if test "$new_comments_exported" -gt 0
+				then
+					printf 'Synced %s with #%s (%d new comment(s) exported)\n' "$short_id" "$issue_number" "$new_comments_exported"
+				else
+					printf 'Synced %s with #%s\n' "$short_id" "$issue_number"
+				fi
 				continue
 				;;
 			*)
