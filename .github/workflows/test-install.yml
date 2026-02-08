@@ -263,7 +263,7 @@ jobs:
       - name: Install package
         run: |
           # Find and install the built package
-          PKGFILE=$(find $GITHUB_WORKSPACE -name "git-issue-*.pkg.tar.zst" | head -1)
+          PKGFILE=$(find $GITHUB_WORKSPACE -name "git-native-issue-*.pkg.tar.zst" | head -1)
           pacman -U --noconfirm "$PKGFILE"
           echo "✓ Package installed"
 
