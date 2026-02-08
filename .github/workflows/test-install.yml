@@ -75,7 +75,7 @@ jobs:
           echo "Version output: $VERSION_OUTPUT"
 
           # Verify version matches expected
-          echo "$VERSION_OUTPUT" | grep -q "1.0.1" || exit 1
+          echo "$VERSION_OUTPUT" | grep -q "1.0.2" || exit 1
           echo "✓ Version command works"
 
       - name: Test basic commands
@@ -134,7 +134,7 @@ jobs:
       - name: Test version command
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          git-issue version | grep -q "1.0.1" || exit 1
+          git-issue version | grep -q "1.0.2" || exit 1
           echo "✓ Version command works on macOS"
 
       - name: Test basic functionality
@@ -181,7 +181,7 @@ jobs:
           brew install remenoscodes/git-native-issue/git-native-issue || exit 1
 
           # Verify installation
-          git-issue version | grep -q "1.0.1" || exit 1
+          git-issue version | grep -q "1.0.2" || exit 1
           echo "✓ Homebrew tap installation works"
 
           # Test successful - Homebrew installation validated
@@ -215,18 +215,18 @@ jobs:
           asdf plugin add git-native-issue https://github.com/remenoscodes/git-native-issue-asdf.git
 
           # List available versions
-          asdf list-all git-native-issue | grep -q "1.0.1" || exit 1
+          asdf list-all git-native-issue | grep -q "1.0.2" || exit 1
           echo "✓ Plugin can list versions"
 
           # Install specific version
-          asdf install git-native-issue 1.0.1
-          echo "✓ Version 1.0.1 installed"
+          asdf install git-native-issue 1.0.2
+          echo "✓ Version 1.0.2 installed"
 
           # Set global version
-          asdf global git-native-issue 1.0.1
+          asdf global git-native-issue 1.0.2
 
           # Verify installation
-          git-issue version | grep -q "1.0.1" || exit 1
+          git-issue version | grep -q "1.0.2" || exit 1
           echo "✓ asdf plugin test complete"
 
   test-pkgbuild:
@@ -274,5 +274,5 @@ jobs:
           test -x /usr/bin/git-issue || exit 1
 
           # Check version
-          git-issue version | grep -q "1.0.1" || exit 1
+          git-issue version | grep -q "1.0.2" || exit 1
           echo "✓ PKGBUILD test complete"
