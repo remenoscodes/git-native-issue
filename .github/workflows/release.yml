@@ -179,26 +179,26 @@ jobs:
       - name: Update Homebrew formula automatically
         if: github.event_name == 'push'
         run: |
-          # Update Formula/git-issue.rb with new version, SHA256, and URL
+          # Update Formula/git-native-issue.rb with new version, SHA256, and URL
           VERSION="${{ steps.tag.outputs.version_number }}"
           SHA256="${{ steps.tarball.outputs.sha256 }}"
           URL="https://github.com/remenoscodes/git-native-issue/releases/download/${{ steps.tag.outputs.version }}/git-native-issue-${{ steps.tag.outputs.version }}.tar.gz"
 
           # Update the formula file
-          sed -i.bak "s|url \".*\"|url \"$URL\"|g" Formula/git-issue.rb
-          sed -i.bak "s|sha256 \".*\"|sha256 \"$SHA256\"|g" Formula/git-issue.rb
-          sed -i.bak "s|version \".*\"|version \"$VERSION\"|g" Formula/git-issue.rb
-          rm -f Formula/git-issue.rb.bak
+          sed -i.bak "s|url \".*\"|url \"$URL\"|g" Formula/git-native-issue.rb
+          sed -i.bak "s|sha256 \".*\"|sha256 \"$SHA256\"|g" Formula/git-native-issue.rb
+          sed -i.bak "s|version \".*\"|version \"$VERSION\"|g" Formula/git-native-issue.rb
+          rm -f Formula/git-native-issue.rb.bak
 
           # Check if formula was actually updated
-          if git diff --quiet Formula/git-issue.rb; then
+          if git diff --quiet Formula/git-native-issue.rb; then
             echo "⚠️  Formula unchanged (already up to date)"
           else
             echo "✓ Formula updated:"
             echo "  version: $VERSION"
             echo "  sha256: $SHA256"
             echo "  url: $URL"
-            git diff Formula/git-issue.rb
+            git diff Formula/git-native-issue.rb
           fi
 
       - name: Commit and push formula update
@@ -213,13 +213,13 @@ jobs:
           git checkout main
 
           # Check if there are changes to commit
-          if git diff --quiet Formula/git-issue.rb; then
+          if git diff --quiet Formula/git-native-issue.rb; then
             echo "⚠️  No formula changes to commit"
             exit 0
           fi
 
           # Commit and push
-          git add Formula/git-issue.rb
+          git add Formula/git-native-issue.rb
           git commit -m "Update Homebrew formula for ${{ steps.tag.outputs.version }}" \
                      -m "" \
                      -m "Automated update from release workflow:" \
