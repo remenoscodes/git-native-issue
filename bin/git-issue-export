@@ -166,25 +166,33 @@ do
 					continue
 				fi
 
-				# Get existing GitHub comment IDs
+				# Get existing GitHub comment IDs and bodies for deduplication
 				gh_comments_json="$(gh api --paginate "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments?per_page=100" 2>/dev/null || echo '[]')"
 				gh_comment_ids="$(printf '%s' "$gh_comments_json" | jq -r '.[].id' | sed 's/^/github:'"$gh_owner\/$gh_reponame"'#comment-/')"
 
 				# Get root commit
 				root="$(git rev-list --max-parents=0 "$ref")"
 
-				# Export new comments (comments without Provider-Comment-ID in GitHub)
+				# Get all commit SHAs that have already been exported (recorded in Exported-Commit trailers)
+				exported_commits="$(git log --format='%(trailers:key=Exported-Commit,valueonly)' "$ref" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
+
+				# Export new comments (skip if commit SHA already in exported list)
 				issue_head="$(git rev-parse "$ref")"
 				commits="$(git rev-list --reverse "$root..$ref")"
 				new_comments_exported=0
+				parent="$issue_head"
 
 				for cmt in $commits
 				do
-					# Get Provider-Comment-ID from this commit
-					cmt_provider_comment_id="$(git log -1 --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$cmt" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
+					# Skip if this commit was already exported (check Exported-Commit trailer list)
+					if echo "$exported_commits" | grep -qF "$cmt" 2>/dev/null
+					then
+						continue
+					fi
 
-					# Skip if this comment is already on GitHub
-					if test -n "$cmt_provider_comment_id" && echo "$gh_comment_ids" | grep -qF "$cmt_provider_comment_id"
+					# Also skip if commit has Provider-Comment-ID (imported from GitHub)
+					cmt_provider_comment_id="$(git log -1 --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$cmt" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
+					if test -n "$cmt_provider_comment_id"
 					then
 						continue
 					fi
@@ -234,12 +242,36 @@ do
 $cmt_body"
 					fi
 
-					# Post comment to GitHub
-					gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
-						-f body="$comment_text" >/dev/null 2>&1 || true
+					# Post comment to GitHub and capture response
+					comment_response="$(gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
+						-f body="$comment_text" 2>/dev/null)" || continue
 
-					new_comments_exported=$((new_comments_exported + 1))
+					# Extract comment ID from response
+					comment_id="$(printf '%s' "$comment_response" | jq -r '.id' 2>/dev/null)"
+
+					if test -n "$comment_id" && test "$comment_id" != "null"
+					then
+						# Record Provider-Comment-ID by creating a metadata commit
+						# Include original commit SHA to associate exported comment with local commit
+						comment_provider_id="github:$gh_owner/$gh_reponame#comment-$comment_id"
+						printf 'Record export of comment to GitHub #%s\n' "$issue_number" > "$tmpfile"
+						git interpret-trailers --in-place \
+							--trailer "Provider-Comment-ID: $comment_provider_id" \
+							--trailer "Exported-Commit: $cmt" \
+							"$tmpfile"
+
+						new_commit="$(git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
+						parent="$new_commit"
+
+						new_comments_exported=$((new_comments_exported + 1))
+					fi
 				done
+
+				# Update ref if we exported any comments
+				if test "$new_comments_exported" -gt 0
+				then
+					git update-ref "$ref" "$parent" "$issue_head"
+				fi
 
 				# Sync state
 				case "$state" in
@@ -305,6 +337,9 @@ $cmt_body"
 	# Export comments (skip root, skip commits with trailers = metadata changes)
 	issue_head="$(git rev-parse "$ref")"
 	commits="$(git rev-list --reverse "$root..$ref")"
+	parent="$issue_head"
+	comments_exported=0
+
 	for cmt in $commits
 	do
 		# Skip commits that have any trailers (state changes, edits, provider-id records)
@@ -324,8 +359,28 @@ $cmt_body"
 
 $cmt_full"
 		fi
-		gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
-			-f body="$comment_text" >/dev/null 2>&1 || true
+
+		# Post comment and capture response
+		comment_response="$(gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
+			-f body="$comment_text" 2>/dev/null)" || continue
+
+		# Extract comment ID
+		comment_id="$(printf '%s' "$comment_response" | jq -r '.id' 2>/dev/null)"
+
+		if test -n "$comment_id" && test "$comment_id" != "null"
+		then
+			# Record Provider-Comment-ID and original commit SHA
+			comment_provider_id="github:$gh_owner/$gh_reponame#comment-$comment_id"
+			printf 'Record export of comment to GitHub #%s\n' "$issue_number" > "$tmpfile"
+			git interpret-trailers --in-place \
+				--trailer "Provider-Comment-ID: $comment_provider_id" \
+				--trailer "Exported-Commit: $cmt" \
+				"$tmpfile"
+
+			new_commit="$(git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
+			parent="$new_commit"
+			comments_exported=$((comments_exported + 1))
+		fi
 	done
 
 	# Sync state if closed
@@ -339,7 +394,13 @@ $cmt_full"
 	printf '%s\n' "Record export to GitHub #$issue_number" > "$tmpfile"
 	git interpret-trailers --in-place --trailer "Provider-ID: $provider_id" "$tmpfile"
 
-	new_commit="$(git commit-tree -p "$issue_head" -- "$empty_tree" < "$tmpfile")"
+	# Use parent from comment chain if comments were exported, otherwise use issue_head
+	if test "$comments_exported" -gt 0
+	then
+		new_commit="$(git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
+	else
+		new_commit="$(git commit-tree -p "$issue_head" -- "$empty_tree" < "$tmpfile")"
+	fi
 	git update-ref -- "$ref" "$new_commit" "$issue_head"
 
 	exported=$((exported + 1))
