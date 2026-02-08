@@ -7,11 +7,17 @@ set -e
 
 usage() {
 	cat <<EOF
-usage: git issue export github:<owner>/<repo> [options]
+usage: git issue export <provider> [options]
+
+Supported providers:
+   github:<owner>/<repo>        GitHub repository
+   gitlab:<group>/<project>     GitLab project
 
 Options:
    --dry-run         Show what would be exported without exporting
    -h, --help        Show this help
+
+See 'git issue export <provider> --help' for provider-specific options.
 EOF
 	exit 1
 }
@@ -53,358 +59,30 @@ then
 	usage
 fi
 
-# Parse provider string
+# Find the directory containing the git-issue scripts
+ISSUE_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Delegate to provider-specific script
 case "$provider" in
 	github:*/*)
-		gh_repo="${provider#github:}"
-		gh_owner="${gh_repo%/*}"
-		gh_reponame="${gh_repo#*/}"
+		if test "$dry_run" -eq 1
+		then
+			exec "$ISSUE_BIN_DIR/git-issue-export-github" "$provider" --dry-run
+		else
+			exec "$ISSUE_BIN_DIR/git-issue-export-github" "$provider"
+		fi
+		;;
+	gitlab:*/*)
+		if test "$dry_run" -eq 1
+		then
+			exec "$ISSUE_BIN_DIR/git-issue-export-gitlab" "$provider" --dry-run
+		else
+			exec "$ISSUE_BIN_DIR/git-issue-export-gitlab" "$provider"
+		fi
 		;;
 	*)
-		echo "error: invalid provider string '$provider'" >&2
-		echo "       expected format: github:<owner>/<repo>" >&2
+		echo "error: unsupported or invalid provider '$provider'" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<group>/<project>" >&2
 		exit 1
 		;;
 esac
-
-# Verify we are inside a git repository
-git rev-parse --git-dir >/dev/null 2>&1 || {
-	echo "fatal: not a git repository" >&2
-	exit 128
-}
-
-# Check prerequisites
-command -v gh >/dev/null 2>&1 || {
-	echo "error: 'gh' (GitHub CLI) is required but not found" >&2
-	echo "       install: https://cli.github.com/" >&2
-	exit 1
-}
-
-command -v jq >/dev/null 2>&1 || {
-	echo "error: 'jq' is required but not found" >&2
-	echo "       install: https://stedolan.github.io/jq/" >&2
-	exit 1
-}
-
-# Check gh auth
-gh auth status >/dev/null 2>&1 || {
-	echo "error: 'gh' is not authenticated. Run 'gh auth login' first." >&2
-	exit 1
-}
-
-tmpfile="$(mktemp)"
-refs_file="$(mktemp)"
-trap 'rm -f "$tmpfile" "$refs_file"' EXIT
-
-# Get the empty tree SHA
-empty_tree="$(git hash-object -t tree /dev/null)"
-
-exported=0
-skipped=0
-synced=0
-
-target_prefix="github:$gh_owner/$gh_reponame#"
-
-# Write refs to file to avoid subshell pipeline (counters would be lost)
-git for-each-ref --format='%(refname)' refs/issues/ > "$refs_file"
-
-while IFS= read -r ref
-do
-	uuid="${ref#refs/issues/}"
-	short_id="$(printf '%s' "$uuid" | cut -c1-7)"
-
-	# Get root commit
-	root="$(git rev-list --max-parents=0 "$ref")"
-	title="$(git log -1 --format='%s' "$root")"
-
-	# Extract body, stripping trailer block via interpret-trailers
-	raw_body="$(git log -1 --format='%b' "$root")"
-	body=""
-	if test -n "$raw_body"
-	then
-		trailer_block="$(printf '%s\n' "$raw_body" | git interpret-trailers --parse 2>/dev/null)" || trailer_block=""
-		if test -n "$trailer_block"
-		then
-			n_trailers="$(printf '%s\n' "$trailer_block" | wc -l | tr -d ' ')"
-			n_body="$(printf '%s\n' "$raw_body" | wc -l | tr -d ' ')"
-			# Subtract trailers + blank separator line before them
-			n_keep=$((n_body - n_trailers - 1))
-			if test "$n_keep" -gt 0
-			then
-				body="$(printf '%s\n' "$raw_body" | head -n "$n_keep")"
-			fi
-		else
-			body="$raw_body"
-		fi
-	fi
-
-	# Get current state
-	state="$(git log --format='%(trailers:key=State,valueonly)' "$ref" | sed '/^$/d' | head -1)"
-	state="$(printf '%s' "$state" | sed 's/^[[:space:]]*//')"
-
-	# Get labels
-	labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$ref" | sed '/^$/d' | head -1)"
-	labels="$(printf '%s' "$labels" | sed 's/^[[:space:]]*//')"
-
-	# Check for Provider-ID in any commit in the chain
-	existing_pid=""
-	existing_pid="$(git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
-		sed '/^$/d' | sed 's/^[[:space:]]*//' | head -1)"
-
-	if test -n "$existing_pid"
-	then
-		# Check if this Provider-ID is for the target repo
-		case "$existing_pid" in
-			"$target_prefix"*)
-				# Already exported to this repo — sync new comments and state
-				issue_number="${existing_pid#$target_prefix}"
-
-				if test "$dry_run" -eq 1
-				then
-					printf '[dry-run] Would sync %s (already exported as #%s)\n' "$short_id" "$issue_number"
-					synced=$((synced + 1))
-					continue
-				fi
-
-				# Get existing GitHub comment IDs and bodies for deduplication
-				gh_comments_json="$(gh api --paginate "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments?per_page=100" 2>/dev/null || echo '[]')"
-				gh_comment_ids="$(printf '%s' "$gh_comments_json" | jq -r '.[].id' | sed 's/^/github:'"$gh_owner\/$gh_reponame"'#comment-/')"
-
-				# Get root commit
-				root="$(git rev-list --max-parents=0 "$ref")"
-
-				# Get all commit SHAs that have already been exported (recorded in Exported-Commit trailers)
-				exported_commits="$(git log --format='%(trailers:key=Exported-Commit,valueonly)' "$ref" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
-
-				# Export new comments (skip if commit SHA already in exported list)
-				issue_head="$(git rev-parse "$ref")"
-				commits="$(git rev-list --reverse "$root..$ref")"
-				new_comments_exported=0
-				parent="$issue_head"
-
-				for cmt in $commits
-				do
-					# Skip if this commit was already exported (check Exported-Commit trailer list)
-					if echo "$exported_commits" | grep -qF "$cmt" 2>/dev/null
-					then
-						continue
-					fi
-
-					# Also skip if commit has Provider-Comment-ID (imported from GitHub)
-					cmt_provider_comment_id="$(git log -1 --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$cmt" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
-					if test -n "$cmt_provider_comment_id"
-					then
-						continue
-					fi
-
-					# Skip commits with State trailer (metadata changes, not comments)
-					cmt_state_trailer="$(git log -1 --format='%(trailers:key=State,valueonly)' "$cmt" | sed '/^$/d')"
-					if test -n "$cmt_state_trailer"
-					then
-						continue
-					fi
-
-					# Skip commits with Provider-ID trailer (export record commits)
-					cmt_provider_id="$(git log -1 --format='%(trailers:key=Provider-ID,valueonly)' "$cmt" | sed '/^$/d')"
-					if test -n "$cmt_provider_id" && test "$cmt_provider_id" = "$existing_pid"
-					then
-						continue
-					fi
-
-					# This is a comment commit - export it
-					cmt_subject="$(git log -1 --format='%s' "$cmt")"
-					cmt_body_full="$(git log -1 --format='%b' "$cmt")"
-
-					# Strip trailers from body
-					cmt_body=""
-					if test -n "$cmt_body_full"
-					then
-						cmt_trailers="$(printf '%s\n' "$cmt_body_full" | git interpret-trailers --parse 2>/dev/null)" || cmt_trailers=""
-						if test -n "$cmt_trailers"
-						then
-							n_trailers="$(printf '%s\n' "$cmt_trailers" | wc -l | tr -d ' ')"
-							n_body="$(printf '%s\n' "$cmt_body_full" | wc -l | tr -d ' ')"
-							n_keep=$((n_body - n_trailers - 1))
-							if test "$n_keep" -gt 0
-							then
-								cmt_body="$(printf '%s\n' "$cmt_body_full" | head -n "$n_keep")"
-							fi
-						else
-							cmt_body="$cmt_body_full"
-						fi
-					fi
-
-					comment_text="$cmt_subject"
-					if test -n "$cmt_body"
-					then
-						comment_text="$comment_text
-
-$cmt_body"
-					fi
-
-					# Post comment to GitHub and capture response
-					comment_response="$(gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
-						-f body="$comment_text" 2>/dev/null)" || continue
-
-					# Extract comment ID from response
-					comment_id="$(printf '%s' "$comment_response" | jq -r '.id' 2>/dev/null)"
-
-					if test -n "$comment_id" && test "$comment_id" != "null"
-					then
-						# Record Provider-Comment-ID by creating a metadata commit
-						# Include original commit SHA to associate exported comment with local commit
-						comment_provider_id="github:$gh_owner/$gh_reponame#comment-$comment_id"
-						printf 'Record export of comment to GitHub #%s\n' "$issue_number" > "$tmpfile"
-						git interpret-trailers --in-place \
-							--trailer "Provider-Comment-ID: $comment_provider_id" \
-							--trailer "Exported-Commit: $cmt" \
-							"$tmpfile"
-
-						new_commit="$(git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
-						parent="$new_commit"
-
-						new_comments_exported=$((new_comments_exported + 1))
-					fi
-				done
-
-				# Update ref if we exported any comments
-				if test "$new_comments_exported" -gt 0
-				then
-					git update-ref "$ref" "$parent" "$issue_head"
-				fi
-
-				# Sync state
-				case "$state" in
-					open)   gh_state="open" ;;
-					closed) gh_state="closed" ;;
-					*)      gh_state="open" ;;
-				esac
-
-				gh api --method PATCH "/repos/$gh_owner/$gh_reponame/issues/$issue_number" \
-					-f state="$gh_state" >/dev/null 2>&1 || true
-
-				synced=$((synced + 1))
-				if test "$new_comments_exported" -gt 0
-				then
-					printf 'Synced %s with #%s (%d new comment(s) exported)\n' "$short_id" "$issue_number" "$new_comments_exported"
-				else
-					printf 'Synced %s with #%s\n' "$short_id" "$issue_number"
-				fi
-				continue
-				;;
-			*)
-				# Foreign Provider-ID (imported from a different repo), skip
-				skipped=$((skipped + 1))
-				printf 'Skipped %s (imported from %s)\n' "$short_id" "$existing_pid"
-				continue
-				;;
-		esac
-	fi
-
-	# No Provider-ID — export as new GitHub issue
-	if test "$dry_run" -eq 1
-	then
-		printf '[dry-run] Would export %s: %s\n' "$short_id" "$title"
-		exported=$((exported + 1))
-		continue
-	fi
-
-	# Build labels JSON array
-	labels_json="[]"
-	if test -n "$labels"
-	then
-		# Split on comma (with optional space after), then trim whitespace
-		labels_json="$(printf '%s' "$labels" | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')"
-	fi
-
-	# Build complete JSON payload
-	json_payload="$(jq -n \
-		--arg title "$title" \
-		--arg body "$body" \
-		--argjson labels "$labels_json" \
-		'{title: $title, body: $body, labels: $labels}')"
-
-	# Create the issue on GitHub
-	create_response="$(printf '%s' "$json_payload" | gh api --method POST "/repos/$gh_owner/$gh_reponame/issues" \
-		--input - 2>&1)" || {
-		echo "error: failed to create issue on GitHub: $create_response" >&2
-		continue
-	}
-
-	issue_number="$(printf '%s' "$create_response" | jq -r '.number')"
-	provider_id="github:$gh_owner/$gh_reponame#$issue_number"
-
-	# Export comments (skip root, skip commits with trailers = metadata changes)
-	issue_head="$(git rev-parse "$ref")"
-	commits="$(git rev-list --reverse "$root..$ref")"
-	parent="$issue_head"
-	comments_exported=0
-
-	for cmt in $commits
-	do
-		# Skip commits that have any trailers (state changes, edits, provider-id records)
-		cmt_trailers="$(git log -1 --format='%(trailers)' "$cmt" | sed '/^$/d')"
-		if test -n "$cmt_trailers"
-		then
-			continue
-		fi
-
-		cmt_body="$(git log -1 --format='%s' "$cmt")"
-		cmt_full="$(git log -1 --format='%b' "$cmt" | sed '/^$/d')"
-
-		comment_text="$cmt_body"
-		if test -n "$cmt_full"
-		then
-			comment_text="$comment_text
-
-$cmt_full"
-		fi
-
-		# Post comment and capture response
-		comment_response="$(gh api --method POST "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments" \
-			-f body="$comment_text" 2>/dev/null)" || continue
-
-		# Extract comment ID
-		comment_id="$(printf '%s' "$comment_response" | jq -r '.id' 2>/dev/null)"
-
-		if test -n "$comment_id" && test "$comment_id" != "null"
-		then
-			# Record Provider-Comment-ID and original commit SHA
-			comment_provider_id="github:$gh_owner/$gh_reponame#comment-$comment_id"
-			printf 'Record export of comment to GitHub #%s\n' "$issue_number" > "$tmpfile"
-			git interpret-trailers --in-place \
-				--trailer "Provider-Comment-ID: $comment_provider_id" \
-				--trailer "Exported-Commit: $cmt" \
-				"$tmpfile"
-
-			new_commit="$(git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
-			parent="$new_commit"
-			comments_exported=$((comments_exported + 1))
-		fi
-	done
-
-	# Sync state if closed
-	if test "$state" = "closed"
-	then
-		gh api --method PATCH "/repos/$gh_owner/$gh_reponame/issues/$issue_number" \
-			-f state="closed" >/dev/null 2>&1 || true
-	fi
-
-	# Record Provider-ID locally by appending a child commit
-	printf '%s\n' "Record export to GitHub #$issue_number" > "$tmpfile"
-	git interpret-trailers --in-place --trailer "Provider-ID: $provider_id" "$tmpfile"
-
-	# Use parent from comment chain if comments were exported, otherwise use issue_head
-	if test "$comments_exported" -gt 0
-	then
-		new_commit="$(git commit-tree -p "$parent" -- "$empty_tree" < "$tmpfile")"
-	else
-		new_commit="$(git commit-tree -p "$issue_head" -- "$empty_tree" < "$tmpfile")"
-	fi
-	git update-ref -- "$ref" "$new_commit" "$issue_head"
-
-	exported=$((exported + 1))
-	printf 'Exported %s as #%s: %s\n' "$short_id" "$issue_number" "$title"
-done < "$refs_file"
-
-printf 'Exported %d issues (%d skipped, %d synced)\n' "$exported" "$skipped" "$synced"

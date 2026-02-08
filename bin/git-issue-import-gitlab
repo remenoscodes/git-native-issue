@@ -269,9 +269,10 @@ do
 				"$tmpfile"
 
 			tree="$empty_tree"
-			commit="$(git commit-tree "$tree" -p "$parent" -m "$(cat "$tmpfile")" \
-				--author="$comment_author_name <$comment_email>" \
-				--date="$comment_created")"
+			commit="$(GIT_AUTHOR_NAME="$comment_author_name" \
+				GIT_AUTHOR_EMAIL="$comment_email" \
+				GIT_AUTHOR_DATE="$comment_created" \
+				git commit-tree "$tree" -p "$parent" -m "$(cat "$tmpfile")")"
 
 			rm -f "$tmpfile"
 			parent="$commit"
@@ -345,9 +346,10 @@ do
 
 	# Create the issue commit
 	tree="$empty_tree"
-	commit="$(git commit-tree "$tree" -m "$(cat "$tmpfile")" \
-		--author="$author_name <$author_email>" \
-		--date="$created_at")"
+	commit="$(GIT_AUTHOR_NAME="$author_name" \
+		GIT_AUTHOR_EMAIL="$author_email" \
+		GIT_AUTHOR_DATE="$created_at" \
+		git commit-tree "$tree" -m "$(cat "$tmpfile")")"
 
 	git update-ref "$ref" "$commit"
 	rm -f "$tmpfile"
