@@ -46,7 +46,7 @@ Our issues are in `refs/issues/*`, synced via `git push` and `git fetch` like co
 
 ## Built for AI Agents (The 2026 Use Case)
 
-AI coding agents (Claude Code, Cursor, GitHub Copilot) need better issue tracking than TODO comments. git-native-issue provides structured, versioned, Git-native issue tracking that agents can work with directly:
+AI coding agents need better issue tracking than TODO comments. git-native-issue provides structured, versioned, Git-native issue tracking that agents can work with directly:
 
 **Why better than TODO comments:**
 - **Structured metadata** - Priority, labels, assignee (not scattered text)

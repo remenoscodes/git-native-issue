@@ -275,7 +275,6 @@ git issue state abc --close -m "False positive"
 - ✅ Searchable (`git issue search "race condition"`)
 
 **Agents that work well with git-issue:**
-- Claude Code (via bash commands)
 - GitHub Copilot Workspace (via git integration)
 - Cursor (via terminal)
 - Custom agents (via git plumbing commands)
