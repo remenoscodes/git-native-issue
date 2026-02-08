@@ -58,11 +58,17 @@ Release has:     git-issue-v1.0.1.tar.gz (old name)
 
 ---
 
-## 🚨 Blockers Confirmed
+## 🚨 Blockers Status
+
+**Blocker #1: Git Repository Validation**
+- Status: ✅ FIXED (commit 1bb9a1e)
+- Issue: Removed validation checks during shellcheck fixes
+- Fix: Restored git_dir checks with shellcheck directive
+- Result: All direct installation tests passing (6/9 jobs)
 
 **Blocker #2: v1.0.1 Incompatibility**
 - Status: CONFIRMED - Cannot install from current release
-- Severity: CRITICAL (blocks all installations)
+- Severity: CRITICAL (blocks Homebrew/asdf/PKGBUILD)
 - Fix: Create v1.0.2 release
 - Time: 30 minutes
 
