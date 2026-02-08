@@ -5,6 +5,28 @@ All notable changes to git-native-issue will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **GitLab bridge** - Import, export, and sync issues with GitLab
+  - `git issue import gitlab:group/project` - Import issues from GitLab
+  - `git issue export gitlab:group/project` - Export issues to GitLab
+  - `git issue sync gitlab:group/project` - Bidirectional synchronization
+  - Support for gitlab.com and self-hosted GitLab instances
+  - GitLab PAT authentication via ~/.config/git-native-issue/gitlab-token or GITLAB_TOKEN env var
+  - Provider-ID format: `gitlab:group/project#123`
+  - Idempotent operations with Exported-Commit tracking (no duplicates)
+
+### Testing
+- GitLab bridge test suite (t/test-gitlab-bridge.sh)
+- Migration test: GitHub → Git → GitLab roundtrip validation
+- Idempotency verification (multiple syncs produce identical results)
+
+### Documentation
+- GitLab bridge setup guide (docs/gitlab-bridge.md)
+- Platform migration guide (GitHub ↔ GitLab)
+- Updated README with GitLab examples
+
 ## [1.0.3] - 2026-02-11
 
 ### Changed
