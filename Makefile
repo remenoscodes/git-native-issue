@@ -34,6 +34,7 @@ test:
 	@sh t/test-bridge.sh
 	@sh t/test-merge.sh
 	@sh t/test-qol.sh
+	@sh t/test-comment-sync.sh
 
 clean:
 	rm -rf t/tmp-*
