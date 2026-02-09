@@ -209,11 +209,17 @@ do
 			continue
 		fi
 
-		# Fetch issue with comments using glab
-		issue_detail="$(glab issue view "$iid" --repo "$gl_repo" --comments --output json 2>/dev/null || echo '{}')"
+		# Fetch comments using GitLab API (glab issue view --output json doesn't include notes)
+		# URL-encode the project path
+		gl_project_encoded="$(printf '%s' "$gl_repo" | sed 's/\//%2F/g')"
+		comments_json="$(glab api "projects/$gl_project_encoded/issues/$iid/notes" 2>/dev/null || echo '[]')"
 
-		# Extract notes (comments) array
-		comments_json="$(printf '%s' "$issue_detail" | jq -r '.notes // []')"
+		# Validate JSON response
+		if ! printf '%s' "$comments_json" | jq empty 2>/dev/null
+		then
+			comments_json="[]"
+		fi
+
 		comment_count="$(printf '%s' "$comments_json" | jq '. | length')"
 
 		if test "$comment_count" -eq 0

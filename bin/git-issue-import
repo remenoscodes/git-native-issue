@@ -15,53 +15,38 @@ Supported providers:
    gitea:<owner>/<repo>         Gitea repository
    forgejo:<owner>/<repo>       Forgejo repository
 
-Options:
-   --state <state>   Filter by state (default: open/opened)
+Options vary by provider. Use 'git issue import <provider> --help' for provider-specific options.
+
+Common options:
+   --state <state>   Filter by state (open, closed, all)
    --dry-run         Show what would be imported without importing
    -h, --help        Show this help
-
-See 'git issue import <provider> --help' for provider-specific options.
 EOF
 	exit 1
 }
 
-provider=""
-state_filter="open"
-dry_run=0
-
-while test $# -gt 0
+# Check for help flag before parsing
+for arg in "$@"
 do
-	case "$1" in
-		--state)
-			test $# -ge 2 || { echo "error: --state requires a value" >&2; exit 1; }
-			case "$2" in
-				open|closed|all) ;;
-				*) echo "error: --state must be open, closed, or all" >&2; exit 1 ;;
-			esac
-			state_filter="$2"
-			shift 2
-			;;
-		--dry-run)
-			dry_run=1
-			shift
-			;;
+	case "$arg" in
 		-h|--help)
 			usage
 			;;
-		--)
-			shift
-			break
-			;;
-		-*)
-			echo "error: unknown option '$1'" >&2
-			usage
-			;;
+	esac
+done
+
+# Extract provider (first non-option argument)
+provider=""
+for arg in "$@"
+do
+	case "$arg" in
+		-*) ;;  # Skip options
 		*)
 			if test -z "$provider"
 			then
-				provider="$1"
+				provider="$arg"
+				break
 			fi
-			shift
 			;;
 	esac
 done
@@ -75,42 +60,19 @@ fi
 # Find the directory containing the git-issue scripts
 ISSUE_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Delegate to provider-specific script
+# Delegate to provider-specific script, passing ALL arguments
 case "$provider" in
 	github:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-import-github" "$provider" ${state_filter:+--state "$state_filter"} --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-import-github" "$provider" ${state_filter:+--state "$state_filter"}
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-import-github" "$@"
 		;;
 	gitlab:*/*)
-		# Map 'open' -> 'opened' for GitLab terminology
-		gitlab_state="$state_filter"
-		test "$gitlab_state" = "open" && gitlab_state="opened"
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-import-gitlab" "$provider" ${gitlab_state:+--state "$gitlab_state"} --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-import-gitlab" "$provider" ${gitlab_state:+--state "$gitlab_state"}
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-import-gitlab" "$@"
 		;;
 	gitea:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"} --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"}
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$@"
 		;;
 	forgejo:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"} --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$provider" ${state_filter:+--state "$state_filter"}
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$@"
 		;;
 	*)
 		echo "error: unsupported or invalid provider '$provider'" >&2

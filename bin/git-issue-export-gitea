@@ -158,12 +158,19 @@ then
 	fi
 fi
 
-# Verify API token
-version_response="$(curl -s -f -H "Authorization: token $api_token" "$api_url/api/v1/version" 2>&1)" || {
-	echo "error: failed to connect to $api_url" >&2
-	echo "       check URL and token" >&2
-	exit 1
-}
+# Verify API token (skip in dry-run)
+if test "$dry_run" -eq 0
+then
+	version_response="$(curl -s -H "Authorization: token $api_token" "$api_url/api/v1/version" 2>&1)"
+
+	if ! printf '%s' "$version_response" | jq empty 2>/dev/null
+	then
+		echo "error: failed to connect to $api_url" >&2
+		echo "       check URL and token" >&2
+		echo "       response: $version_response" >&2
+		exit 1
+	fi
+fi
 
 # Get the empty tree SHA
 empty_tree="$(git hash-object -t tree /dev/null)"
@@ -177,6 +184,77 @@ target_prefix="$platform:$owner/$repo#"
 tmpfile="$(mktemp)"
 refs_file="$(mktemp)"
 trap 'rm -f "$tmpfile" "$refs_file"' EXIT
+
+# Fetch and cache all existing labels from target repository (skip in dry-run)
+if test "$dry_run" -eq 0
+then
+	all_labels_json="$(curl -s -H "Authorization: token $api_token" \
+		"$api_url/api/v1/repos/$owner/$repo/labels?limit=100" 2>&1)"
+
+	# Validate labels response
+	if ! printf '%s' "$all_labels_json" | jq empty 2>/dev/null
+	then
+		echo "warning: failed to fetch labels from $platform, label creation may fail" >&2
+		all_labels_json="[]"
+	fi
+else
+	all_labels_json="[]"
+fi
+
+# Helper function: get or create label ID by name
+# Usage: label_id=$(get_or_create_label_id "enhancement")
+get_or_create_label_id() {
+	label_name="$1"
+
+	# Check if label exists in cache
+	label_id="$(printf '%s' "$all_labels_json" | jq -r --arg name "$label_name" \
+		'.[] | select(.name == $name) | .id')"
+
+	if test -n "$label_id"
+	then
+		printf '%s' "$label_id"
+		return 0
+	fi
+
+	# Label doesn't exist - create it
+	# Use a default color based on label name
+	case "$label_name" in
+		bug|fix) color="#d73a4a" ;;
+		enhancement|feature) color="#a2eeef" ;;
+		documentation|docs) color="#0075ca" ;;
+		question) color="#d876e3" ;;
+		duplicate) color="#cfd3d7" ;;
+		help*) color="#008672" ;;
+		*) color="#84b6eb" ;;  # default blue
+	esac
+
+	create_label_payload="$(jq -n \
+		--arg name "$label_name" \
+		--arg color "$color" \
+		--arg description "Auto-created by git-issue export" \
+		'{name: $name, color: $color, description: $description}')"
+
+	create_label_response="$(curl -s -X POST \
+		-H "Authorization: token $api_token" \
+		-H "Content-Type: application/json" \
+		-d "$create_label_payload" \
+		"$api_url/api/v1/repos/$owner/$repo/labels" 2>&1)"
+
+	# Extract new label ID
+	new_label_id="$(printf '%s' "$create_label_response" | jq -r '.id // empty')"
+
+	if test -z "$new_label_id"
+	then
+		echo "warning: failed to create label '$label_name'" >&2
+		return 1
+	fi
+
+	# Add to cache for future lookups
+	all_labels_json="$(printf '%s' "$all_labels_json" | jq --argjson new "$create_label_response" '. + [$new]')"
+
+	printf '%s' "$new_label_id"
+	return 0
+}
 
 # Write refs to file to avoid subshell pipeline
 git for-each-ref --format='%(refname)' refs/issues/ > "$refs_file"
@@ -388,14 +466,38 @@ $cmt_body"
 		continue
 	fi
 
-	# Build labels array
+	# Build labels array - resolve label names to IDs
 	labels_array="[]"
 	if test -n "$labels"
 	then
-		# Convert comma-separated string to JSON array
+		# Split comma-separated labels and get/create each label ID
+		label_ids=""
 		IFS=','
-		labels_array="$(printf '%s' "$labels" | awk 'BEGIN{printf "["} {for(i=1;i<=NF;i++){if(i>1)printf ","; gsub(/^[ \t]+|[ \t]+$/,"",$i); printf "\"%s\"",$i}} END{printf "]"}')"
+		for label_name in $labels
+		do
+			# Trim whitespace
+			label_name="$(printf '%s' "$label_name" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+			# Get or create label ID
+			label_id="$(get_or_create_label_id "$label_name")"
+
+			if test -n "$label_id"
+			then
+				if test -z "$label_ids"
+				then
+					label_ids="$label_id"
+				else
+					label_ids="$label_ids,$label_id"
+				fi
+			fi
+		done
 		unset IFS
+
+		# Convert comma-separated IDs to JSON array of integers
+		if test -n "$label_ids"
+		then
+			labels_array="$(printf '%s' "$label_ids" | awk 'BEGIN{printf "["} {split($0,a,","); for(i=1;i<=length(a);i++){if(i>1)printf ","; printf "%s",a[i]}} END{printf "]"}')"
+		fi
 	fi
 
 	# Create issue on Gitea/Forgejo
@@ -405,20 +507,26 @@ $cmt_body"
 		--argjson labels "$labels_array" \
 		'{title: $title, body: $body, labels: $labels}')"
 
-	create_response="$(curl -s -f -X POST \
+	create_response="$(curl -s -X POST \
 		-H "Authorization: token $api_token" \
 		-H "Content-Type: application/json" \
 		-d "$create_payload" \
-		"$api_url/api/v1/repos/$owner/$repo/issues" 2>&1)" || {
-		echo "error: failed to create issue on $platform" >&2
+		"$api_url/api/v1/repos/$owner/$repo/issues" 2>&1)"
+
+	# Validate JSON response
+	if ! printf '%s' "$create_response" | jq empty 2>/dev/null
+	then
+		echo "error: failed to create issue on $platform (invalid response)" >&2
+		echo "       response: $create_response" >&2
 		continue
-	}
+	fi
 
 	# Check for API errors
 	if printf '%s' "$create_response" | jq -e '.message // .error' >/dev/null 2>&1
 	then
 		error_msg="$(printf '%s' "$create_response" | jq -r '.message // .error // "unknown error"')"
-		echo "error: API error: $error_msg" >&2
+		echo "error: API error creating issue: $error_msg" >&2
+		echo "       response: $create_response" >&2
 		continue
 	fi
 

@@ -144,7 +144,7 @@ fi
 # Remove trailing slash from URL
 api_url="${api_url%/}"
 
-# Get API token from various sources
+# Get API token from various sources (optional for public repos)
 if test -z "$api_token"
 then
 	# Try environment variables
@@ -162,19 +162,29 @@ then
 	then
 		api_token="$(cat "$HOME/.config/git-native-issue/forgejo-token")"
 	else
-		echo "error: API token required but not found" >&2
-		echo "       provide via --token, GITEA_TOKEN/FORGEJO_TOKEN env var, or config file" >&2
-		echo "       config: ~/.config/git-native-issue/gitea-token" >&2
-		exit 1
+		# Token is optional - warn but allow public access
+		echo "warning: no API token found, accessing public repositories only" >&2
+		echo "         provide via --token, GITEA_TOKEN/FORGEJO_TOKEN env var, or config file for private repos" >&2
+		api_token=""
 	fi
 fi
 
-# Verify API token and auto-detect platform if needed
-version_response="$(curl -s -f -H "Authorization: token $api_token" "$api_url/api/v1/version" 2>&1)" || {
+# Verify API and auto-detect platform
+# Try with token first, then without for public repos
+if test -n "$api_token"
+then
+	version_response="$(curl -s -H "Authorization: token $api_token" "$api_url/api/v1/version" 2>&1)"
+else
+	version_response="$(curl -s "$api_url/api/v1/version" 2>&1)"
+fi
+
+# Check if we got valid JSON
+if ! printf '%s' "$version_response" | jq empty 2>/dev/null
+then
 	echo "error: failed to connect to $api_url" >&2
-	echo "       check URL and token" >&2
+	echo "       response: $version_response" >&2
 	exit 1
-}
+fi
 
 # Auto-detect platform from version endpoint
 detected_platform="$(printf '%s' "$version_response" | jq -r '.version // empty' | grep -i forgejo >/dev/null 2>&1 && echo "forgejo" || echo "gitea")"
@@ -211,12 +221,15 @@ all_issues="[]"
 
 while true
 do
-	issues_page="$(curl -s -f -H "Authorization: token $api_token" \
-		"$api_url/api/v1/repos/$owner/$repo/issues?${state_param}&page=$page&limit=$per_page" 2>&1)" || {
-		echo "error: failed to fetch issues from $platform:$owner/$repo" >&2
-		echo "       $issues_page" >&2
-		exit 1
-	}
+	# Build curl command with optional auth header
+	if test -n "$api_token"
+	then
+		issues_page="$(curl -s -H "Authorization: token $api_token" \
+			"$api_url/api/v1/repos/$owner/$repo/issues?${state_param}&page=$page&limit=$per_page" 2>&1)"
+	else
+		issues_page="$(curl -s \
+			"$api_url/api/v1/repos/$owner/$repo/issues?${state_param}&page=$page&limit=$per_page" 2>&1)"
+	fi
 
 	# Check if we got valid JSON
 	if ! printf '%s' "$issues_page" | jq empty 2>/dev/null
@@ -226,7 +239,25 @@ do
 		exit 1
 	fi
 
+	# Check if response is an array (not an error object)
+	if ! printf '%s' "$issues_page" | jq -e 'type == "array"' >/dev/null 2>&1
+	then
+		# Got an error object instead of issues array
+		error_msg="$(printf '%s' "$issues_page" | jq -r '.message // "unknown error"')"
+		echo "error: API returned error: $error_msg" >&2
+		echo "       response: $issues_page" >&2
+		exit 1
+	fi
+
 	page_count="$(printf '%s' "$issues_page" | jq '. | length')"
+
+	# Validate page_count is a valid integer
+	case "$page_count" in
+		''|*[!0-9]*)
+			echo "error: invalid page count: '$page_count'" >&2
+			exit 1
+			;;
+	esac
 
 	if test "$page_count" -eq 0
 	then
@@ -246,6 +277,15 @@ do
 done
 
 issue_count="$(printf '%s' "$all_issues" | jq '. | length')"
+
+# Validate issue_count is a valid integer
+case "$issue_count" in
+	''|*[!0-9]*)
+		echo "error: invalid issue count: '$issue_count'" >&2
+		exit 1
+		;;
+esac
+
 printf 'Found %d issues\n' "$issue_count" >&2
 
 if test "$issue_count" -eq 0
@@ -341,6 +381,9 @@ do
 			comment_author_username="$(printf '%s' "$comments_json" | jq -r ".[$j].user.login")"
 			comment_created="$(printf '%s' "$comments_json" | jq -r ".[$j].created_at")"
 
+			# Fallback to username if name is empty
+			test -z "$comment_author_name" && comment_author_name="$comment_author_username"
+
 			# Use username@platform as email
 			comment_email="${comment_author_username}@users.noreply.${platform}.com"
 
@@ -392,6 +435,9 @@ do
 	created_at="$(printf '%s' "$all_issues" | jq -r ".[$i].created_at")"
 	author_name="$(printf '%s' "$all_issues" | jq -r ".[$i].user.full_name // .[$i].user.login")"
 	author_username="$(printf '%s' "$all_issues" | jq -r ".[$i].user.login")"
+
+	# Fallback to username if name is empty
+	test -z "$author_name" && author_name="$author_username"
 
 	# Use username@platform as email
 	author_email="${author_username}@users.noreply.${platform}.com"

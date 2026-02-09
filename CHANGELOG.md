@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-02-09
+
+### Fixed
+
+**Critical bug fixes for Gitea/Forgejo bridge** (10 bugs found during integration testing):
+
+1. **Import router argument passing** - Router scripts (git-issue-import, git-issue-export) weren't passing --url and --token flags to provider-specific scripts. Fixed by passing all arguments via "$@".
+
+2. **Import pagination integer validation** - Missing validation before integer arithmetic caused "integer expression expected" errors when API returned invalid responses. Added proper validation with error messages.
+
+3. **Import authentication requirements** - Hard requirement for API token prevented importing from public repositories. Changed to optional with warning message for private repo access.
+
+4. **Import error handling with curl -f** - The -f flag caused curl to fail silently on HTTP errors, hiding actual API error messages. Removed -f flag and added JSON validation instead.
+
+5. **Import empty author names** - Some Gitea users have empty full_name field, causing "empty ident name not allowed" git errors. Added fallback to username when full_name is empty.
+
+6. **Export router argument passing** - Same issue as import router, fixed by passing all arguments via "$@".
+
+7. **Export label handling for Gitea** - Gitea API expects label IDs (integers) but we were sending label names (strings), causing "cannot unmarshal number into Go struct field" errors. Implemented smart label resolution:
+   - Fetches all existing labels from target repository
+   - Auto-creates missing labels with smart color defaults:
+     - bug/fix → red (#d73a4a)
+     - enhancement/feature → light blue (#a2eeef)
+     - documentation/docs → blue (#0075ca)
+     - question → purple (#d876e3)
+     - duplicate → gray (#cfd3d7)
+     - help* → green (#008672)
+     - default → blue (#84b6eb)
+   - Returns label IDs for API calls
+   - Caches labels for performance
+
+8. **Export token verification** - Token check with curl -f blocked dry-run mode. Removed -f flag, added JSON validation, and skipped verification in dry-run mode.
+
+9. **Export dry-run improvements** - Dry-run mode now works without valid credentials, skipping all API calls.
+
+10. **GitLab comment sync** - glab issue view --output json doesn't include notes/comments (glab CLI limitation). Changed to use direct API call: glab api "projects/{encoded_path}/issues/{iid}/notes".
+
+### Testing
+
+- **Full integration testing across all 3 platforms** (GitHub, GitLab, Gitea):
+  - ✅ Import: 4 issues from 3 different platforms into single repository
+  - ✅ Export: Local issues exported to GitLab and Gitea with label auto-creation
+  - ✅ Bidirectional sync: Comments added on all 3 platforms synced successfully
+  - ✅ Unicode & emoji: 你好 🚀 🌍 🔧 preserved across all platforms
+  - ✅ Smart duplicate prevention: Issues with Provider-ID correctly skipped
+  - ✅ Cross-platform migration: GitHub→Local→GitLab/Gitea workflows verified
+- **Test suite results**: 97/97 tests passing (76 core + 21 QoL)
+- **Real-world validation**: Tested with gitea.com, gitlab.com, and github.com
+
+### Changed
+
+- bin/git-issue-import: Pass all arguments to provider scripts
+- bin/git-issue-export: Pass all arguments to provider scripts
+- bin/git-issue-import-gitea: Fixed 5 bugs (pagination, auth, errors, authors, token check)
+- bin/git-issue-export-gitea: Fixed 3 bugs (labels, token check, dry-run) + added label auto-creation
+- bin/git-issue-import-gitlab: Fixed comment sync (use direct API instead of glab issue view)
+
 ## [1.2.0] - 2026-02-08
 
 ### Added

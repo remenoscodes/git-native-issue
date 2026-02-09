@@ -15,42 +15,37 @@ Supported providers:
    gitea:<owner>/<repo>         Gitea repository
    forgejo:<owner>/<repo>       Forgejo repository
 
-Options:
+Options vary by provider. Use 'git issue export <provider> --help' for provider-specific options.
+
+Common options:
    --dry-run         Show what would be exported without exporting
    -h, --help        Show this help
-
-See 'git issue export <provider> --help' for provider-specific options.
 EOF
 	exit 1
 }
 
-provider=""
-dry_run=0
-
-while test $# -gt 0
+# Check for help flag before parsing
+for arg in "$@"
 do
-	case "$1" in
-		--dry-run)
-			dry_run=1
-			shift
-			;;
+	case "$arg" in
 		-h|--help)
 			usage
 			;;
-		--)
-			shift
-			break
-			;;
-		-*)
-			echo "error: unknown option '$1'" >&2
-			usage
-			;;
+	esac
+done
+
+# Extract provider (first non-option argument)
+provider=""
+for arg in "$@"
+do
+	case "$arg" in
+		-*) ;;  # Skip options
 		*)
 			if test -z "$provider"
 			then
-				provider="$1"
+				provider="$arg"
+				break
 			fi
-			shift
 			;;
 	esac
 done
@@ -64,43 +59,23 @@ fi
 # Find the directory containing the git-issue scripts
 ISSUE_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Delegate to provider-specific script
+# Delegate to provider-specific script, passing ALL arguments
 case "$provider" in
 	github:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-export-github" "$provider" --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-export-github" "$provider"
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-export-github" "$@"
 		;;
 	gitlab:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-export-gitlab" "$provider" --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-export-gitlab" "$provider"
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-export-gitlab" "$@"
 		;;
 	gitea:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider" --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider"
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$@"
 		;;
 	forgejo:*/*)
-		if test "$dry_run" -eq 1
-		then
-			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider" --dry-run
-		else
-			exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$provider"
-		fi
+		exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$@"
 		;;
 	*)
 		echo "error: unsupported or invalid provider '$provider'" >&2
-		echo "       supported: github:<owner>/<repo>, gitlab:<group>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>" >&2
 		exit 1
 		;;
 esac
