@@ -10,12 +10,21 @@ usage() {
 usage: git issue init [<remote>]
 
 Configure the current repository for git-issue tracking.
-Adds the refs/issues/* fetch refspec to the specified remote (default: origin).
+Adds the refs/issues/* fetch refspec to the specified remote.
+
+If no remote is specified, git-issue will auto-detect:
+  - If only one remote exists, use that
+  - If 'origin' exists, use origin
+  - Otherwise, you must specify which remote to use
+
+Note: git issue init is OPTIONAL. Core commands (create, ls, show, comment)
+work without it. Init only adds convenience for automatic fetch of issues.
 EOF
 	exit 1
 }
 
-remote="origin"
+remote=""
+remote_specified=0
 
 while test $# -gt 0
 do
@@ -33,6 +42,7 @@ do
 			;;
 		*)
 			remote="$1"
+			remote_specified=1
 			shift
 			;;
 	esac
@@ -45,7 +55,55 @@ git_dir="$(git rev-parse --git-dir 2>/dev/null)" || {
 	exit 128
 }
 
-# Verify the remote exists
+# Auto-detect remote if not specified
+if test "$remote_specified" -eq 0
+then
+	all_remotes="$(git remote)"
+	remote_count="$(printf '%s' "$all_remotes" | grep -c . || true)"
+
+	if test "$remote_count" -eq 0
+	then
+		# No remotes at all
+		cat >&2 <<EOF
+git-issue: No remotes configured.
+
+Note: git issue init is OPTIONAL. You can use git-issue without any remote:
+  - All core commands (create, ls, show, comment, edit, state) work locally
+  - To sync with a remote later, use manual push/fetch:
+    git push <remote> 'refs/issues/*'
+    git fetch <remote> 'refs/issues/*:refs/issues/*'
+
+To configure automatic fetch when you add a remote, run:
+  git issue init <remote-name>
+EOF
+		exit 0
+	elif test "$remote_count" -eq 1
+	then
+		# Exactly one remote - use it
+		remote="$all_remotes"
+		printf "git-issue: Auto-detected remote '%s'\n" "$remote"
+	elif printf '%s' "$all_remotes" | grep -qxF "origin"
+	then
+		# Multiple remotes but origin exists - use origin
+		remote="origin"
+		printf "git-issue: Auto-detected remote 'origin'\n"
+	else
+		# Multiple remotes, no origin - ask user to specify
+		cat >&2 <<EOF
+git-issue: Multiple remotes found. Please specify which one to use:
+  $(printf '%s' "$all_remotes" | sed 's/^/  - /')
+
+Usage:
+  git issue init <remote-name>
+
+Example:
+  git issue init $(printf '%s' "$all_remotes" | head -1)
+EOF
+		exit 1
+	fi
+fi
+
+# Verify the remote exists (if we got here, either user specified or auto-detected)
 if ! git remote | grep -qxF "$remote"
 then
 	echo "error: remote '$remote' does not exist" >&2
