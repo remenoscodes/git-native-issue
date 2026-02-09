@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-02-09
+
+### Fixed
+- **git-issue-init remote coupling**: Fixed hardcoded "origin" assumption that failed in repos without remotes or with non-standard remote names
+- **Intelligent remote auto-detection**: Init now auto-detects remotes intelligently (single remote, prefers origin if multiple, asks user if ambiguous)
+- **Local-only repository support**: Clarified that `git issue init` is OPTIONAL - all core commands work perfectly without any remote configuration
+
+### Added
+- Comprehensive test coverage for local-only workflows (t/test-local-only-repo.sh - 17 tests)
+- Remote auto-detection test suite (t/test-init-auto-detect.sh - 13 tests)
+- Improved error messages explaining init is optional and showing manual push/fetch alternatives
+
+### Changed
+- `git issue init` now exits gracefully (exit 0) when no remotes exist, with helpful message
+- Updated documentation to clarify distributed/offline-first philosophy
+
 ## [1.2.1] - 2026-02-09
 
 ### Fixed
