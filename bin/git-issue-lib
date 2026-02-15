@@ -97,6 +97,101 @@ normalize_labels() {
 	printf '%s' "$_normalized"
 }
 
+# Validate git user configuration before creating commits
+# Exits with code 128 if user.name or user.email is not set
+validate_git_identity() {
+	_name="$(git config user.name 2>/dev/null || true)"
+	_email="$(git config user.email 2>/dev/null || true)"
+
+	if test -z "$_name"
+	then
+		printf 'fatal: user.name not set\n' >&2
+		printf '       run: git config user.name "Your Name"\n' >&2
+		exit 128
+	fi
+
+	if test -z "$_email"
+	then
+		printf 'fatal: user.email not set\n' >&2
+		printf '       run: git config user.email "you@example.com"\n' >&2
+		exit 128
+	fi
+}
+
+# Update a ref with CAS retry on concurrent modification
+# Usage: update_ref_with_retry <ref> <new_sha> <expected_old_sha>
+# Returns: 0 on success, 1 on persistent conflict, 128 on error
+update_ref_with_retry() {
+	_ref="$1"
+	_new_sha="$2"
+	_expected_old="$3"
+
+	_max_attempts=3
+	_attempt=1
+
+	while test "$_attempt" -le "$_max_attempts"
+	do
+		# Get current ref value (may have changed since expected)
+		_current="$(git rev-parse "$_ref" 2>/dev/null || true)"
+
+		if test -z "$_current"
+		then
+			printf 'error: ref %s disappeared during update\n' "$_ref" >&2
+			return 128
+		fi
+
+		# On retry, use current value for CAS (not original expected)
+		if test "$_attempt" -gt 1
+		then
+			_expected_old="$_current"
+		fi
+
+		# Attempt CAS update
+		if git update-ref -- "$_ref" "$_new_sha" "$_expected_old" 2>/dev/null
+		then
+			# Success
+			return 0
+		fi
+
+		# CAS failed - check if ref changed
+		_after="$(git rev-parse "$_ref" 2>/dev/null || true)"
+
+		if test "$_after" = "$_expected_old"
+		then
+			# Ref didn't change but update-ref failed (unexpected error)
+			printf 'error: git update-ref failed unexpectedly\n' >&2
+			return 128
+		fi
+
+		# Ref changed concurrently - retry if we have attempts left
+		if test "$_attempt" -lt "$_max_attempts"
+		then
+			# Exponential backoff: 100ms, 200ms
+			_sleep_ms=$((100 * (1 << (_attempt - 1))))
+
+			# POSIX-portable sleep (use Perl if available for precision)
+			if command -v perl >/dev/null 2>&1
+			then
+				perl -e "select(undef, undef, undef, $_sleep_ms / 1000)" 2>/dev/null || sleep 1
+			else
+				sleep 1
+			fi
+
+			_attempt=$((_attempt + 1))
+		else
+			# Out of retries
+			_short_id="$(printf '%s' "$_ref" | sed 's|refs/issues/||' | cut -c1-7)"
+			printf 'error: concurrent modification detected\n' >&2
+			printf '       issue was modified by another process\n' >&2
+			printf '       run git issue show %s to see current state\n' "$_short_id" >&2
+			return 1
+		fi
+	done
+
+	# Unreachable
+	return 128
+}
+
 # Get the effective title for an issue ref
 # Checks for Title: trailer override, falls back to root commit subject
 get_issue_title() {

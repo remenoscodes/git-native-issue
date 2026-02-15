@@ -180,6 +180,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
 	exit 128
 }
 
+# Validate git identity before creating commits
+validate_git_identity
+
 # Resolve the issue ID
 matches="$(resolve_issue "$issue_prefix")"
 count="$(printf '%s\n' "$matches" | grep -c . || true)"
@@ -342,10 +345,20 @@ fi
 # Get the empty tree SHA
 empty_tree="$(git hash-object -t tree /dev/null)"
 
+if test -z "$empty_tree"
+then
+	printf 'error: failed to generate empty tree hash\n' >&2
+	exit 128
+fi
+
 # Create the commit with the current HEAD as parent
 commit="$(git commit-tree -p "$issue_head" -- "$empty_tree" < "$tmpfile")"
 
-# Update the ref
-git update-ref -- "$issue_ref" "$commit" "$issue_head"
+# Update the ref with retry on concurrent modification
+if ! update_ref_with_retry "$issue_ref" "$commit" "$issue_head"
+then
+	# Error already printed by update_ref_with_retry
+	exit 1
+fi
 
 printf 'Updated %s (%s)\n' "$short_id" "$changes"
