@@ -118,6 +118,52 @@ validate_git_identity() {
 	fi
 }
 
+# Validate email format for assignee
+# Args: $1 = email string, $2 = field name (for error messages)
+# Returns: 0 if valid, exits with error if invalid
+validate_email() {
+	_email="$1"
+	_field="${2:-assignee}"
+
+	# Allow empty (unassigning)
+	test -z "$_email" && return 0
+
+	# Basic email format: something@something.something
+	# This is permissive - accepts most common email formats
+	case "$_email" in
+		*@*.*)
+			# Has @ and at least one dot after @
+			# Check there's something before @
+			_local="${_email%%@*}"
+			if test -z "$_local"
+			then
+				printf 'error: %s email missing local part (before @)\n' "$_field" >&2
+				exit 1
+			fi
+			# Check there's something between @ and .
+			_rest="${_email#*@}"
+			_domain="${_rest%%.*}"
+			if test -z "$_domain"
+			then
+				printf 'error: %s email missing domain (between @ and .)\n' "$_field" >&2
+				exit 1
+			fi
+			# Check there's something after final .
+			_tld="${_email##*.}"
+			if test -z "$_tld" || test "$_tld" = "$_email"
+			then
+				printf 'error: %s email missing TLD (after final .)\n' "$_field" >&2
+				exit 1
+			fi
+			return 0
+			;;
+		*)
+			printf 'error: %s must be a valid email address (format: user@domain.com)\n' "$_field" >&2
+			exit 1
+			;;
+	esac
+}
+
 # Update a ref with CAS retry on concurrent modification
 # Usage: update_ref_with_retry <ref> <new_sha> <expected_old_sha>
 # Returns: 0 on success, 1 on persistent conflict, 128 on error

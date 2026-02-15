@@ -112,6 +112,7 @@ do
 		-a|--assignee)
 			test $# -ge 2 || { echo "error: -a requires a value" >&2; exit 1; }
 			validate_no_newlines "$2" "assignee"
+			validate_email "$2" "assignee"
 			assignee="$2"
 			shift 2
 			;;
