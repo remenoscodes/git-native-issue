@@ -64,6 +64,13 @@ do
 		-l|--label)
 			test $# -ge 2 || { echo "error: -l requires a value" >&2; exit 1; }
 			validate_no_newlines "$2" "label"
+			# Validate: label must not contain comma
+			case "$2" in
+				*,*)
+					echo "error: label '$2' contains a comma (use multiple -l flags instead)" >&2
+					exit 1
+					;;
+			esac
 			has_label_set=1
 			if test -n "$set_labels"
 			then
@@ -76,6 +83,13 @@ do
 		--add-label)
 			test $# -ge 2 || { echo "error: --add-label requires a value" >&2; exit 1; }
 			validate_no_newlines "$2" "label"
+			# Validate: label must not contain comma
+			case "$2" in
+				*,*)
+					echo "error: label '$2' contains a comma (use multiple -l flags instead)" >&2
+					exit 1
+					;;
+			esac
 			if test -n "$add_labels"
 			then
 				add_labels="$add_labels, $2"
@@ -249,7 +263,8 @@ then
 		IFS="$old_ifs"
 	fi
 
-	set_labels="$final_labels"
+	# Normalize: deduplicate, validate, remove empties
+	set_labels="$(normalize_labels "$final_labels")"
 	has_label_set=1
 fi
 
@@ -300,6 +315,12 @@ fi
 
 if test "$has_label_set" -eq 1
 then
+	# Normalize before writing (handles case where set_labels came from -l flags)
+	if test -n "$set_labels"
+	then
+		set_labels="$(normalize_labels "$set_labels")"
+	fi
+	# Always write trailer, even if empty (marks explicit label removal)
 	git interpret-trailers --in-place --trailer "Labels: $set_labels" "$tmpfile"
 fi
 

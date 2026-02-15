@@ -24,6 +24,79 @@ validate_no_newlines() {
 	esac
 }
 
+# Normalize and validate a comma-separated label string
+# Args: $1 = raw label string (e.g., "bug, feature, bug")
+# Output: normalized string (e.g., "bug, feature") to stdout
+# Exits with error if any label contains a comma
+normalize_labels() {
+	_raw="$1"
+
+	# Empty input is valid (no labels)
+	test -z "$_raw" && return 0
+
+	# Save/restore IFS for comma splitting
+	_old_ifs="$IFS"
+	IFS=','
+
+	_normalized=""
+	_seen="" # Track seen labels for deduplication
+
+	for _label in $_raw
+	do
+		# Trim leading/trailing whitespace
+		_label="$(printf '%s' "$_label" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+
+		# Skip empty labels
+		test -z "$_label" && continue
+
+		# Validate: label must not contain comma
+		# (This check is on trimmed individual label, not the original input)
+		case "$_label" in
+			*,*)
+				echo "error: label '$_label' contains a comma (use multiple -l flags instead)" >&2
+				IFS="$_old_ifs"
+				exit 1
+				;;
+		esac
+
+		# Check if already seen (case-sensitive deduplication per spec 4.7)
+		_duplicate=0
+		_check_ifs="$IFS"
+		IFS=','
+		for _seen_label in $_seen
+		do
+			if test "$_seen_label" = "$_label"
+			then
+				_duplicate=1
+				break
+			fi
+		done
+		IFS="$_check_ifs"
+
+		# Add to result if not duplicate
+		if test "$_duplicate" -eq 0
+		then
+			if test -n "$_normalized"
+			then
+				_normalized="$_normalized, $_label"
+			else
+				_normalized="$_label"
+			fi
+
+			# Track as seen
+			if test -n "$_seen"
+			then
+				_seen="$_seen,$_label"
+			else
+				_seen="$_label"
+			fi
+		fi
+	done
+
+	IFS="$_old_ifs"
+	printf '%s' "$_normalized"
+}
+
 # Get the effective title for an issue ref
 # Checks for Title: trailer override, falls back to root commit subject
 get_issue_title() {

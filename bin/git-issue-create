@@ -40,6 +40,13 @@ do
 		-l|--label)
 			test $# -ge 2 || { echo "error: -l requires a value" >&2; exit 1; }
 			validate_no_newlines "$2" "label"
+			# Validate: label must not contain comma
+			case "$2" in
+				*,*)
+					echo "error: label '$2' contains a comma (use multiple -l flags instead)" >&2
+					exit 1
+					;;
+			esac
 			if test -n "$labels"
 			then
 				labels="$labels, $2"
@@ -147,7 +154,11 @@ git interpret-trailers --in-place --trailer "State: open" "$tmpfile"
 
 if test -n "$labels"
 then
-	git interpret-trailers --in-place --trailer "Labels: $labels" "$tmpfile"
+	# Normalize: deduplicate, validate, remove empties
+	labels="$(normalize_labels "$labels")"
+	# Only write if normalization produced non-empty result
+	test -n "$labels" && \
+		git interpret-trailers --in-place --trailer "Labels: $labels" "$tmpfile"
 fi
 
 if test -n "$assignee"
