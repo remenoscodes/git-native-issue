@@ -7,6 +7,7 @@
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 
@@ -199,6 +200,7 @@ function emit() {
 	ref = substr($0, 7)
 	state = ""; labels = ""; assignee = ""; priority = ""; milestone = ""
 	title_over = ""; root_subj = ""; created_ts = ""; updated_ts = ""
+	has_assignee = 0; has_priority = 0; has_milestone = 0
 	next
 }
 
@@ -217,12 +219,12 @@ function emit() {
 
 /^COMMIT_END/ { next }
 
-# Trailer lines: "Key: Value" — aggregate first non-empty per key
+# Trailer lines: "Key: Value" — aggregate first occurrence per key (even if empty)
 /^State: /     { if (state == "")     { state = $0;     sub(/^State: /, "", state) } }
 /^Labels: /    { if (labels == "")    { labels = $0;    sub(/^Labels: /, "", labels) } }
-/^Assignee: /  { if (assignee == "")  { assignee = $0;  sub(/^Assignee: /, "", assignee) } }
-/^Priority: /  { if (priority == "")  { priority = $0;  sub(/^Priority: /, "", priority) } }
-/^Milestone: / { if (milestone == "") { milestone = $0; sub(/^Milestone: /, "", milestone) } }
+/^Assignee: /  { if (!has_assignee)   { assignee = $0;  sub(/^Assignee: /, "", assignee); has_assignee = 1 } }
+/^Priority: /  { if (!has_priority)   { priority = $0;  sub(/^Priority: /, "", priority); has_priority = 1 } }
+/^Milestone: / { if (!has_milestone)  { milestone = $0; sub(/^Milestone: /, "", milestone); has_milestone = 1 } }
 /^Title: /     { if (title_over == "") { title_over = $0; sub(/^Title: /, "", title_over) } }
 
 END { emit() }

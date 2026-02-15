@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -98,6 +99,8 @@ gh auth status >/dev/null 2>&1 || {
 	exit 1
 }
 
+. "$(dirname "$0")/git-issue-lib"
+
 tmpfile="$(mktemp)"
 refs_file="$(mktemp)"
 trap 'rm -f "$tmpfile" "$refs_file"' EXIT
@@ -110,6 +113,74 @@ skipped=0
 synced=0
 
 target_prefix="github:$gh_owner/$gh_reponame#"
+
+# Resolve an email to a GitHub username for assignee export
+# Uses three-tier lookup: cache → GitHub search API → noreply pattern
+resolve_github_assignee() {
+	_rga_email="$1"
+
+	# Tier 1: Persistent cache (populated during import)
+	_rga_login="$(lookup_cached_login "$_rga_email" "github")"
+	if test -n "$_rga_login"
+	then
+		# Verify the user still exists (username may have changed)
+		_rga_cached_id="$(lookup_cached_user_id "$_rga_email" "github")"
+		if test -n "$_rga_cached_id"
+		then
+			_rga_current="$(gh api "/user/$_rga_cached_id" 2>/dev/null | jq -r '.login // empty')"
+			if test -n "$_rga_current"
+			then
+				# Update cache if username changed
+				if test "$_rga_current" != "$_rga_login"
+				then
+					cache_platform_user "$_rga_email" "$_rga_current" "$_rga_cached_id" "github"
+				fi
+				printf '%s' "$_rga_current"
+				return 0
+			fi
+		fi
+		# ID lookup failed but we have a cached login, try it directly
+		printf '%s' "$_rga_login"
+		return 0
+	fi
+
+	# Tier 2: GitHub search API (works for public emails)
+	_rga_search="$(gh api "/search/users?q=${_rga_email}+in:email" 2>/dev/null || echo '{}')"
+	_rga_found_login="$(printf '%s' "$_rga_search" | jq -r '.items[0].login // empty')"
+	_rga_found_id="$(printf '%s' "$_rga_search" | jq -r '.items[0].id // empty')"
+
+	if test -n "$_rga_found_login"
+	then
+		cache_platform_user "$_rga_email" "$_rga_found_login" "$_rga_found_id" "github"
+		printf '%s' "$_rga_found_login"
+		return 0
+	fi
+
+	# Tier 3: Extract username from noreply email pattern
+	case "$_rga_email" in
+		*@users.noreply.github.com)
+			_rga_noreply_login="${_rga_email%@users.noreply.github.com}"
+			# Handle numeric prefix format: 12345+username@users.noreply.github.com
+			case "$_rga_noreply_login" in
+				*+*)
+					_rga_noreply_login="${_rga_noreply_login#*+}"
+					;;
+			esac
+			# Verify user exists
+			_rga_verify="$(gh api "/users/$_rga_noreply_login" 2>/dev/null || echo '{}')"
+			_rga_verify_id="$(printf '%s' "$_rga_verify" | jq -r '.id // empty')"
+			if test -n "$_rga_verify_id"
+			then
+				cache_platform_user "$_rga_email" "$_rga_noreply_login" "$_rga_verify_id" "github"
+				printf '%s' "$_rga_noreply_login"
+				return 0
+			fi
+			;;
+	esac
+
+	# All lookups failed
+	return 0
+}
 
 # Write refs to file to avoid subshell pipeline (counters would be lost)
 git for-each-ref --format='%(refname)' refs/issues/ > "$refs_file"
@@ -151,6 +222,17 @@ do
 	# Get labels
 	labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$ref" | sed '/^$/d' | head -1)"
 	labels="$(printf '%s' "$labels" | sed 's/^[[:space:]]*//')"
+
+	# Get assignee (canonical email)
+	# Use full trailer format to distinguish "no trailer" from "empty value"
+	_assignee_line="$(git log --format='%(trailers:key=Assignee)' "$ref" | sed '/^$/d' | head -1)"
+	has_assignee=0
+	assignee_email=""
+	if test -n "$_assignee_line"
+	then
+		has_assignee=1
+		assignee_email="$(printf '%s' "$_assignee_line" | sed 's/^Assignee:[[:space:]]*//')"
+	fi
 
 	# Check for Provider-ID in any commit in the chain
 	existing_pid=""
@@ -279,7 +361,7 @@ $cmt_body"
 					git update-ref "$ref" "$parent" "$issue_head"
 				fi
 
-				# Sync state
+				# Sync state and assignee
 				case "$state" in
 					open)   gh_state="open" ;;
 					closed) gh_state="closed" ;;
@@ -288,6 +370,31 @@ $cmt_body"
 
 				gh api --method PATCH "/repos/$gh_owner/$gh_reponame/issues/$issue_number" \
 					-f state="$gh_state" >/dev/null 2>&1 || true
+
+				# Sync assignee (only if local issue has an opinion)
+				if test "$has_assignee" -eq 1
+				then
+					if test -n "$assignee_email"
+					then
+						_sync_login="$(resolve_github_assignee "$assignee_email")"
+						if test -n "$_sync_login"
+						then
+							_assignee_json="$(jq -n --arg a "$_sync_login" '{assignee: $a}')"
+							printf '%s' "$_assignee_json" | gh api --method PATCH \
+								"/repos/$gh_owner/$gh_reponame/issues/$issue_number" \
+								--input - >/dev/null 2>&1 || {
+								printf 'Warning: failed to sync assignee %s to #%s\n' "$_sync_login" "$issue_number" >&2
+							}
+						else
+							printf 'Warning: could not resolve %s to GitHub user for %s\n' "$assignee_email" "$short_id" >&2
+						fi
+					else
+						# Explicitly unassigned in local issue
+						printf '{"assignee":null}' | gh api --method PATCH \
+							"/repos/$gh_owner/$gh_reponame/issues/$issue_number" \
+							--input - >/dev/null 2>&1 || true
+					fi
+				fi
 
 				synced=$((synced + 1))
 				if test "$new_comments_exported" -gt 0
@@ -323,12 +430,33 @@ $cmt_body"
 		labels_json="$(printf '%s' "$labels" | jq -R 'split(",") | map(ltrimstr(" ") | rtrimstr(" "))')"
 	fi
 
+	# Resolve assignee email to GitHub username
+	assignee_login=""
+	if test "$has_assignee" -eq 1 && test -n "$assignee_email"
+	then
+		assignee_login="$(resolve_github_assignee "$assignee_email")"
+		if test -z "$assignee_login"
+		then
+			printf 'Warning: could not resolve %s to GitHub user for %s\n' "$assignee_email" "$short_id" >&2
+		fi
+	fi
+
 	# Build complete JSON payload
-	json_payload="$(jq -n \
-		--arg title "$title" \
-		--arg body "$body" \
-		--argjson labels "$labels_json" \
-		'{title: $title, body: $body, labels: $labels}')"
+	if test -n "$assignee_login"
+	then
+		json_payload="$(jq -n \
+			--arg title "$title" \
+			--arg body "$body" \
+			--argjson labels "$labels_json" \
+			--arg assignee "$assignee_login" \
+			'{title: $title, body: $body, labels: $labels, assignee: $assignee}')"
+	else
+		json_payload="$(jq -n \
+			--arg title "$title" \
+			--arg body "$body" \
+			--argjson labels "$labels_json" \
+			'{title: $title, body: $body, labels: $labels}')"
+	fi
 
 	# Create the issue on GitHub
 	create_response="$(printf '%s' "$json_payload" | gh api --method POST "/repos/$gh_owner/$gh_reponame/issues" \

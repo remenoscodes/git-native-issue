@@ -308,6 +308,124 @@ case "$output" in
 		;;
 esac
 
+# TEST 16: Assignee can be unassigned (cleared) with empty string
+run_test
+setup_repo
+id="$(git-issue-create "Test unassign" -a "user@example.com" 2>&1 | awk '{print $NF}')"
+ref="$(git for-each-ref --format='%(refname)' "refs/issues/$id*")"
+# Verify initial assignment
+assignee="$(git log --format='%(trailers:key=Assignee,valueonly)' "$ref" | head -1 | sed 's/^[[:space:]]*//')"
+if test "$assignee" != "user@example.com"
+then
+	fail "unassign setup" "expected user@example.com, got: $assignee"
+else
+	# Clear the assignee
+	if git-issue-edit "$id" -a "" >/dev/null 2>&1
+	then
+		# Verify assignee was cleared
+		assignee="$(git log --format='%(trailers:key=Assignee,valueonly)' "$ref" | head -1 | sed 's/^[[:space:]]*//')"
+		if test -z "$assignee"
+		then
+			# Verify show doesn't display Assignee line in header (before Updates section)
+			show_output="$(git-issue-show "$id" | sed '/^----/,$d')"
+			case "$show_output" in
+				*"Assignee:"*)
+					fail "unassign" "Assignee still shown in header"
+					;;
+				*)
+					pass "assignee can be unassigned with empty string"
+					;;
+			esac
+		else
+			fail "unassign" "expected empty, got: $assignee"
+		fi
+	else
+		fail "unassign" "edit with empty assignee failed"
+	fi
+fi
+
+# TEST 17: Unassigned issue not shown when filtering by assignee
+run_test
+setup_repo
+id1="$(git-issue-create "Assigned" -a "user@example.com" 2>&1 | awk '{print $NF}')"
+id2="$(git-issue-create "Unassigned" 2>&1 | awk '{print $NF}')"
+id3="$(git-issue-create "Was assigned" -a "user@example.com" 2>&1 | awk '{print $NF}')"
+git-issue-edit "$id3" -a "" >/dev/null 2>&1
+
+output="$(git-issue-ls --assignee user@example.com)"
+case "$output" in
+	*"$id1"*)
+		case "$output" in
+			*"$id2"*|*"$id3"*)
+				fail "unassigned filter" "included unassigned or cleared issues"
+				;;
+			*)
+				pass "unassigned issue excluded from assignee filter"
+				;;
+		esac
+		;;
+	*)
+		fail "unassigned filter" "didn't include assigned issue"
+		;;
+esac
+
+# TEST 18: Platform user cache write and read
+run_test
+setup_repo
+. "$BIN_DIR/git-issue-lib"
+cache_platform_user "alice@example.com" "alice-gh" "12345" "github"
+cached_login="$(lookup_cached_login "alice@example.com" "github")"
+if test "$cached_login" = "alice-gh"
+then
+	pass "platform user cache write and read"
+else
+	fail "platform user cache" "expected alice-gh, got: $cached_login"
+fi
+
+# TEST 19: Platform user cache ID lookup
+run_test
+cached_id="$(lookup_cached_user_id "alice@example.com" "github")"
+if test "$cached_id" = "12345"
+then
+	pass "platform user cache ID lookup"
+else
+	fail "platform user cache ID" "expected 12345, got: $cached_id"
+fi
+
+# TEST 20: Cache update replaces stale entry
+run_test
+cache_platform_user "alice@example.com" "alice-new" "12345" "github"
+cached_login="$(lookup_cached_login "alice@example.com" "github")"
+entry_count="$(grep -c "^alice@example.com," "$(get_user_cache_path github)" 2>/dev/null || echo 0)"
+if test "$cached_login" = "alice-new" && test "$entry_count" -eq 1
+then
+	pass "cache update replaces stale entry (no duplicates)"
+else
+	fail "cache update" "login=$cached_login count=$entry_count"
+fi
+
+# TEST 21: Cache miss returns empty (not error)
+run_test
+cached_login="$(lookup_cached_login "nobody@example.com" "github")"
+if test -z "$cached_login"
+then
+	pass "cache miss returns empty"
+else
+	fail "cache miss" "expected empty, got: $cached_login"
+fi
+
+# TEST 22: Multiple users in cache don't collide
+run_test
+cache_platform_user "bob@example.com" "bob-gh" "67890" "github"
+alice_login="$(lookup_cached_login "alice@example.com" "github")"
+bob_login="$(lookup_cached_login "bob@example.com" "github")"
+if test "$alice_login" = "alice-new" && test "$bob_login" = "bob-gh"
+then
+	pass "multiple users in cache don't collide"
+else
+	fail "multi-user cache" "alice=$alice_login bob=$bob_login"
+fi
+
 printf "\n============================================================\n"
 printf "Tests: %d | Passed: %d | Failed: %d\n" "$TESTS_RUN" "$TESTS_PASSED" "$TESTS_FAILED"
 printf "============================================================\n"

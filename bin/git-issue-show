@@ -4,6 +4,7 @@
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 
@@ -75,7 +76,8 @@ raw_desc="$(git log -1 --format='%b' "$root")"
 description=""
 if test -n "$raw_desc"
 then
-	desc_trailers="$(printf '%s\n' "$raw_desc" | git interpret-trailers --parse 2>/dev/null)" || desc_trailers=""
+	# Prepend blank line so git interpret-trailers can parse trailers at start of body
+	desc_trailers="$(printf '\n%s\n' "$raw_desc" | git interpret-trailers --parse 2>/dev/null)" || desc_trailers=""
 	if test -n "$desc_trailers"
 	then
 		n_t="$(printf '%s\n' "$desc_trailers" | wc -l | tr -d ' ')"
@@ -100,11 +102,11 @@ state="$(printf '%s' "$state" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$issue_ref" | \
 	sed '/^$/d' | head -1)"
 assignee="$(git log --format='%(trailers:key=Assignee,valueonly)' "$issue_ref" | \
-	sed '/^$/d' | head -1)"
+	head -1)"
 priority="$(git log --format='%(trailers:key=Priority,valueonly)' "$issue_ref" | \
-	sed '/^$/d' | head -1)"
+	head -1)"
 milestone="$(git log --format='%(trailers:key=Milestone,valueonly)' "$issue_ref" | \
-	sed '/^$/d' | head -1)"
+	head -1)"
 
 # Get author and date
 author="$(git log -1 --format='%an <%ae>' "$root")"

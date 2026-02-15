@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -111,10 +112,59 @@ glab auth status >/dev/null 2>&1 || {
 	exit 1
 }
 
+# Source shared library for user cache functions
+. "$(dirname "$0")/git-issue-lib"
+
+# Resolve a GitLab username to name and email
+# Also populates the persistent bidirectional cache for export reverse-lookup
+# Output: two lines: name\nemail
+resolve_gitlab_user() {
+	_rgu_login="$1"
+	_rgu_cache_file="$_import_tmpdir/user-cache/$_rgu_login"
+
+	if test -f "$_rgu_cache_file"
+	then
+		cat "$_rgu_cache_file"
+		return
+	fi
+
+	_rgu_user_json="$(glab api "/users?username=$_rgu_login" 2>/dev/null || echo '[]')"
+	_rgu_name="$(printf '%s' "$_rgu_user_json" | jq -r '.[0].name // empty')"
+	_rgu_email="$(printf '%s' "$_rgu_user_json" | jq -r '.[0].public_email // empty')"
+	_rgu_user_id="$(printf '%s' "$_rgu_user_json" | jq -r '.[0].id // empty')"
+
+	if test -z "$_rgu_email"
+	then
+		_rgu_email="$(printf '%s' "$_rgu_user_json" | jq -r '.[0].email // empty')"
+	fi
+
+	if test -z "$_rgu_name"
+	then
+		_rgu_name="$_rgu_login"
+	fi
+
+	if test -z "$_rgu_email"
+	then
+		_rgu_email="${_rgu_login}@users.noreply.gitlab.com"
+	fi
+
+	# Session cache (fast, in-memory via filesystem)
+	printf '%s\n%s\n' "$_rgu_name" "$_rgu_email" > "$_rgu_cache_file"
+
+	# Persistent bidirectional cache (survives across sessions)
+	if test -n "$_rgu_user_id"
+	then
+		cache_platform_user "$_rgu_email" "$_rgu_login" "$_rgu_user_id" "gitlab"
+	fi
+
+	cat "$_rgu_cache_file"
+}
+
 # Build Provider-ID index from existing issues
 _import_tmpdir="$(mktemp -d)"
 trap 'rm -rf "$_import_tmpdir"' EXIT
 provider_index="$_import_tmpdir/provider-index"
+mkdir -p "$_import_tmpdir/user-cache"
 
 git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
 do
@@ -251,12 +301,13 @@ do
 
 			# Extract comment data
 			comment_body="$(printf '%s' "$comments_json" | jq -r ".[$j].body")"
-			comment_author_name="$(printf '%s' "$comments_json" | jq -r ".[$j].author.name")"
 			comment_author_username="$(printf '%s' "$comments_json" | jq -r ".[$j].author.username")"
 			comment_created="$(printf '%s' "$comments_json" | jq -r ".[$j].created_at")"
 
-			# Use username@gitlab.com as email
-			comment_email="${comment_author_username}@users.noreply.gitlab.com"
+			# Resolve comment author via GitLab API + cache
+			_comment_user_info="$(resolve_gitlab_user "$comment_author_username")"
+			comment_author_name="$(printf '%s' "$_comment_user_info" | head -1)"
+			comment_email="$(printf '%s' "$_comment_user_info" | tail -1)"
 
 			if test "$dry_run" -eq 1
 			then
@@ -304,11 +355,12 @@ do
 	description="$(printf '%s' "$issues_json" | jq -r ".[$i].description // \"\"")"
 	state="$(printf '%s' "$issues_json" | jq -r ".[$i].state")"
 	created_at="$(printf '%s' "$issues_json" | jq -r ".[$i].created_at")"
-	author_name="$(printf '%s' "$issues_json" | jq -r ".[$i].author.name")"
 	author_username="$(printf '%s' "$issues_json" | jq -r ".[$i].author.username")"
 
-	# Use username@gitlab.com as email
-	author_email="${author_username}@users.noreply.gitlab.com"
+	# Resolve issue author via GitLab API + cache
+	_author_info="$(resolve_gitlab_user "$author_username")"
+	author_name="$(printf '%s' "$_author_info" | head -1)"
+	author_email="$(printf '%s' "$_author_info" | tail -1)"
 
 	# Map GitLab state to our format
 	case "$state" in
@@ -321,7 +373,13 @@ do
 	labels="$(printf '%s' "$issues_json" | jq -r ".[$i].labels | join(\",\")")"
 
 	# Extract assignees (GitLab supports multiple, we take first)
-	assignees="$(printf '%s' "$issues_json" | jq -r ".[$i].assignees // [] | .[0].name // \"\"")"
+	assignee_username="$(printf '%s' "$issues_json" | jq -r ".[$i].assignees // [] | .[0].username // \"\"")"
+	assignees=""
+	if test -n "$assignee_username"
+	then
+		_assignee_info="$(resolve_gitlab_user "$assignee_username")"
+		assignees="$(printf '%s' "$_assignee_info" | tail -1)"
+	fi
 
 	if test "$dry_run" -eq 1
 	then

@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -150,6 +151,7 @@ skipped=0
 empty_tree="$(git hash-object -t tree /dev/null)"
 
 # Helper: resolve GitHub user to name and email
+# Also populates the persistent bidirectional cache for export reverse-lookup
 resolve_user() {
 	login="$1"
 	cache_file="$user_cache_dir/$login"
@@ -163,6 +165,7 @@ resolve_user() {
 	user_json="$(gh api "/users/$login" 2>/dev/null || echo '{}')"
 	name="$(printf '%s' "$user_json" | jq -r '.name // empty')"
 	email="$(printf '%s' "$user_json" | jq -r '.email // empty')"
+	user_id="$(printf '%s' "$user_json" | jq -r '.id // empty')"
 
 	if test -z "$name"
 	then
@@ -174,7 +177,15 @@ resolve_user() {
 		email="${login}@users.noreply.github.com"
 	fi
 
+	# Session cache (fast, in-memory via filesystem)
 	printf '%s\n%s\n' "$name" "$email" > "$cache_file"
+
+	# Persistent bidirectional cache (survives across sessions)
+	if test -n "$user_id"
+	then
+		cache_platform_user "$email" "$login" "$user_id" "github"
+	fi
+
 	cat "$cache_file"
 }
 

@@ -7,6 +7,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -115,6 +116,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
 	echo "fatal: not a git repository" >&2
 	exit 128
 }
+
+# Source shared library for user cache functions
+. "$(dirname "$0")/git-issue-lib"
 
 # Check prerequisites
 command -v jq >/dev/null 2>&1 || {
@@ -322,6 +326,45 @@ get_imported_comment_ids() {
 		sed '/^$/d' | sed 's/^[[:space:]]*//'
 }
 
+# Helper: resolve a Gitea/Forgejo username to name and email
+# Also populates the persistent bidirectional cache for export reverse-lookup
+# Output: two lines - "name\nemail"
+resolve_gitea_user() {
+	_rgu_login="$1"
+	_rgu_platform="${2:-$platform}"
+
+	# Call Gitea/Forgejo API to get user details
+	if test -n "$api_token"
+	then
+		_rgu_user_json="$(curl -s -H "Authorization: token $api_token" \
+			"$api_url/api/v1/users/$_rgu_login" 2>/dev/null || echo '{}')"
+	else
+		_rgu_user_json="$(curl -s "$api_url/api/v1/users/$_rgu_login" 2>/dev/null || echo '{}')"
+	fi
+
+	_rgu_name="$(printf '%s' "$_rgu_user_json" | jq -r '.full_name // empty')"
+	_rgu_email="$(printf '%s' "$_rgu_user_json" | jq -r '.email // empty')"
+	_rgu_user_id="$(printf '%s' "$_rgu_user_json" | jq -r '.id // empty')"
+
+	if test -z "$_rgu_name"
+	then
+		_rgu_name="$_rgu_login"
+	fi
+
+	if test -z "$_rgu_email"
+	then
+		_rgu_email="${_rgu_login}@users.noreply.${_rgu_platform}.com"
+	fi
+
+	# Populate persistent bidirectional cache
+	if test -n "$_rgu_user_id"
+	then
+		cache_platform_user "$_rgu_email" "$_rgu_login" "$_rgu_user_id" "$_rgu_platform"
+	fi
+
+	printf '%s\n%s\n' "$_rgu_name" "$_rgu_email"
+}
+
 # Process each issue
 i=0
 while test "$i" -lt "$issue_count"
@@ -377,15 +420,13 @@ do
 
 			# Extract comment data
 			comment_body="$(printf '%s' "$comments_json" | jq -r ".[$j].body")"
-			comment_author_name="$(printf '%s' "$comments_json" | jq -r ".[$j].user.full_name // .[$j].user.login")"
 			comment_author_username="$(printf '%s' "$comments_json" | jq -r ".[$j].user.login")"
 			comment_created="$(printf '%s' "$comments_json" | jq -r ".[$j].created_at")"
 
-			# Fallback to username if name is empty
-			test -z "$comment_author_name" && comment_author_name="$comment_author_username"
-
-			# Use username@platform as email
-			comment_email="${comment_author_username}@users.noreply.${platform}.com"
+			# Resolve comment author to name and email via API (also populates cache)
+			_comment_info="$(resolve_gitea_user "$comment_author_username")"
+			comment_author_name="$(printf '%s' "$_comment_info" | head -1)"
+			comment_email="$(printf '%s' "$_comment_info" | tail -1)"
 
 			if test "$dry_run" -eq 1
 			then
@@ -433,14 +474,12 @@ do
 	body="$(printf '%s' "$all_issues" | jq -r ".[$i].body // \"\"")"
 	state="$(printf '%s' "$all_issues" | jq -r ".[$i].state")"
 	created_at="$(printf '%s' "$all_issues" | jq -r ".[$i].created_at")"
-	author_name="$(printf '%s' "$all_issues" | jq -r ".[$i].user.full_name // .[$i].user.login")"
 	author_username="$(printf '%s' "$all_issues" | jq -r ".[$i].user.login")"
 
-	# Fallback to username if name is empty
-	test -z "$author_name" && author_name="$author_username"
-
-	# Use username@platform as email
-	author_email="${author_username}@users.noreply.${platform}.com"
+	# Resolve author to name and email via API (also populates cache)
+	_author_info="$(resolve_gitea_user "$author_username")"
+	author_name="$(printf '%s' "$_author_info" | head -1)"
+	author_email="$(printf '%s' "$_author_info" | tail -1)"
 
 	# Map state to our format
 	case "$state" in
@@ -452,8 +491,14 @@ do
 	# Extract labels (array of objects with 'name' field)
 	labels="$(printf '%s' "$all_issues" | jq -r ".[$i].labels | map(.name) | join(\",\")")"
 
-	# Extract assignees (Gitea/Forgejo support multiple, we take first)
-	assignees="$(printf '%s' "$all_issues" | jq -r ".[$i].assignees // [] | .[0].full_name // .[0].login // \"\"")"
+	# Extract assignee (Gitea/Forgejo support multiple, we take first)
+	assignee_login="$(printf '%s' "$all_issues" | jq -r ".[$i].assignees // [] | .[0].login // \"\"")"
+	assignee_email=""
+	if test -n "$assignee_login"
+	then
+		_assignee_info="$(resolve_gitea_user "$assignee_login")"
+		assignee_email="$(printf '%s' "$_assignee_info" | tail -1)"
+	fi
 
 	if test "$dry_run" -eq 1
 	then
@@ -488,7 +533,7 @@ do
 		--trailer "Provider-ID: $provider_id" \
 		--trailer "State: $mapped_state" \
 		${labels:+--trailer "Labels: $labels"} \
-		${assignees:+--trailer "Assignee: $assignees"} \
+		${assignee_email:+--trailer "Assignee: $assignee_email"} \
 		"$tmpfile"
 
 	# Create the issue commit

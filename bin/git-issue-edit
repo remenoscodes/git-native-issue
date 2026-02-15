@@ -4,6 +4,7 @@
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 
@@ -35,6 +36,7 @@ priority=""
 milestone=""
 message=""
 has_label_set=0
+has_assignee_set=0
 
 # Parse the issue ID first
 if test $# -gt 0
@@ -114,6 +116,7 @@ do
 			validate_no_newlines "$2" "assignee"
 			validate_email "$2" "assignee"
 			assignee="$2"
+			has_assignee_set=1
 			shift 2
 			;;
 		-p|--priority)
@@ -169,7 +172,7 @@ fi
 # Check that at least one edit was specified
 if test -z "$new_title" && test "$has_label_set" -eq 0 && \
    test -z "$add_labels" && test -z "$remove_labels" && \
-   test -z "$assignee" && test -z "$priority" && test -z "$milestone"
+   test "$has_assignee_set" -eq 0 && test -z "$priority" && test -z "$milestone"
 then
 	echo "error: at least one edit option is required" >&2
 	usage
@@ -283,7 +286,7 @@ then
 	test -n "$changes" && changes="$changes, "
 	changes="${changes}labels"
 fi
-if test -n "$assignee"
+if test "$has_assignee_set" -eq 1
 then
 	test -n "$changes" && changes="$changes, "
 	changes="${changes}assignee"
@@ -328,8 +331,9 @@ then
 	git interpret-trailers --in-place --trailer "Labels: $set_labels" "$tmpfile"
 fi
 
-if test -n "$assignee"
+if test "$has_assignee_set" -eq 1
 then
+	# Always write trailer, even if empty (marks explicit unassignment)
 	git interpret-trailers --in-place --trailer "Assignee: $assignee" "$tmpfile"
 fi
 

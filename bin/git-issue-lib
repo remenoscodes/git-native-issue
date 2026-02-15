@@ -238,6 +238,78 @@ update_ref_with_retry() {
 	return 128
 }
 
+# Get the path to a platform-specific user cache file
+# Stored inside .git/ so it travels with the repo's local state
+# Args: $1 = platform name (e.g., "github", "gitlab", "gitea")
+# Output: absolute path to cache file
+get_user_cache_path() {
+	_platform="$1"
+	_git_dir="$(git rev-parse --git-dir 2>/dev/null)"
+	printf '%s/issue-user-cache.%s' "$_git_dir" "$_platform"
+}
+
+# Cache a platform user mapping (email <-> platform login)
+# Args: $1 = email, $2 = login, $3 = user_id, $4 = platform
+cache_platform_user() {
+	_cpu_email="$1"
+	_cpu_login="$2"
+	_cpu_id="$3"
+	_cpu_platform="$4"
+
+	_cpu_cache="$(get_user_cache_path "$_cpu_platform")"
+	_cpu_ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%SZ")"
+
+	# Remove stale entry for this email (if any)
+	if test -f "$_cpu_cache"
+	then
+		_cpu_tmp="${_cpu_cache}.tmp"
+		grep -v "^${_cpu_email}," "$_cpu_cache" > "$_cpu_tmp" 2>/dev/null || true
+		mv "$_cpu_tmp" "$_cpu_cache"
+	fi
+
+	printf '%s,%s,%s,%s\n' "$_cpu_email" "$_cpu_login" "$_cpu_id" "$_cpu_ts" >> "$_cpu_cache"
+}
+
+# Lookup a platform login from a cached email
+# Args: $1 = email, $2 = platform
+# Output: login to stdout (empty if not found)
+lookup_cached_login() {
+	_lcl_email="$1"
+	_lcl_platform="$2"
+	_lcl_cache="$(get_user_cache_path "$_lcl_platform")"
+
+	if test -f "$_lcl_cache"
+	then
+		_lcl_entry="$(grep "^${_lcl_email}," "$_lcl_cache" 2>/dev/null | tail -1)"
+		if test -n "$_lcl_entry"
+		then
+			printf '%s' "$_lcl_entry" | cut -d, -f2
+			return 0
+		fi
+	fi
+	return 0
+}
+
+# Lookup a cached user ID from an email
+# Args: $1 = email, $2 = platform
+# Output: user_id to stdout (empty if not found)
+lookup_cached_user_id() {
+	_lci_email="$1"
+	_lci_platform="$2"
+	_lci_cache="$(get_user_cache_path "$_lci_platform")"
+
+	if test -f "$_lci_cache"
+	then
+		_lci_entry="$(grep "^${_lci_email}," "$_lci_cache" 2>/dev/null | tail -1)"
+		if test -n "$_lci_entry"
+		then
+			printf '%s' "$_lci_entry" | cut -d, -f3
+			return 0
+		fi
+	fi
+	return 0
+}
+
 # Get the effective title for an issue ref
 # Checks for Title: trailer override, falls back to root commit subject
 get_issue_title() {

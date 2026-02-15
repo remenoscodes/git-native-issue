@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -99,6 +100,9 @@ glab auth status >/dev/null 2>&1 || {
 	exit 1
 }
 
+# Source shared library for user cache functions
+. "$(dirname "$0")/git-issue-lib"
+
 # Use glab api for all GitLab API calls
 gl_repo="$gl_group/$gl_project"
 # URL-encode the project path for API calls
@@ -112,6 +116,85 @@ skipped=0
 synced=0
 
 target_prefix="gitlab:$gl_group/$gl_project#"
+
+# Auto-seed cache with authenticated user identity
+_gl_self="$(glab api /user 2>/dev/null || echo '{}')"
+_gl_self_email="$(printf '%s' "$_gl_self" | jq -r '.public_email // .email // empty')"
+_gl_self_login="$(printf '%s' "$_gl_self" | jq -r '.username // empty')"
+_gl_self_id="$(printf '%s' "$_gl_self" | jq -r '.id // empty')"
+if test -n "$_gl_self_email" && test -n "$_gl_self_login" && test -n "$_gl_self_id"
+then
+	cache_platform_user "$_gl_self_email" "$_gl_self_login" "$_gl_self_id" "gitlab"
+fi
+
+# Resolve an email to a GitLab user ID for assignee export
+# Uses three-tier lookup: cache -> GitLab search API -> noreply pattern
+# Returns GitLab user ID (integer), since GitLab API requires assignee_ids
+resolve_gitlab_assignee() {
+	_rgla_email="$1"
+
+	# Tier 1: Persistent cache (populated during import or auto-seed)
+	_rgla_login="$(lookup_cached_login "$_rgla_email" "gitlab")"
+	if test -n "$_rgla_login"
+	then
+		_rgla_cached_id="$(lookup_cached_user_id "$_rgla_email" "gitlab")"
+		if test -n "$_rgla_cached_id"
+		then
+			# Verify the user still exists
+			_rgla_current="$(glab api "/users/$_rgla_cached_id" 2>/dev/null | jq -r '.username // empty')"
+			if test -n "$_rgla_current"
+			then
+				# Update cache if username changed
+				if test "$_rgla_current" != "$_rgla_login"
+				then
+					cache_platform_user "$_rgla_email" "$_rgla_current" "$_rgla_cached_id" "gitlab"
+				fi
+				printf '%s' "$_rgla_cached_id"
+				return 0
+			fi
+		fi
+	fi
+
+	# Tier 2: GitLab user search API (works for public emails)
+	_rgla_search="$(glab api "/users?search=$_rgla_email" 2>/dev/null || echo '[]')"
+	_rgla_search_count="$(printf '%s' "$_rgla_search" | jq '. | length')"
+	_rgla_j=0
+	while test "$_rgla_j" -lt "$_rgla_search_count"
+	do
+		_rgla_found_email="$(printf '%s' "$_rgla_search" | jq -r ".[$_rgla_j].public_email // empty")"
+		if test "$_rgla_found_email" = "$_rgla_email"
+		then
+			_rgla_found_login="$(printf '%s' "$_rgla_search" | jq -r ".[$_rgla_j].username // empty")"
+			_rgla_found_id="$(printf '%s' "$_rgla_search" | jq -r ".[$_rgla_j].id // empty")"
+			if test -n "$_rgla_found_id"
+			then
+				cache_platform_user "$_rgla_email" "$_rgla_found_login" "$_rgla_found_id" "gitlab"
+				printf '%s' "$_rgla_found_id"
+				return 0
+			fi
+		fi
+		_rgla_j=$((_rgla_j + 1))
+	done
+
+	# Tier 3: Extract username from noreply email pattern
+	case "$_rgla_email" in
+		*@users.noreply.gitlab.com)
+			_rgla_noreply_login="${_rgla_email%@users.noreply.gitlab.com}"
+			# Verify user exists and get ID
+			_rgla_verify="$(glab api "/users?username=$_rgla_noreply_login" 2>/dev/null || echo '[]')"
+			_rgla_verify_id="$(printf '%s' "$_rgla_verify" | jq -r '.[0].id // empty')"
+			if test -n "$_rgla_verify_id"
+			then
+				cache_platform_user "$_rgla_email" "$_rgla_noreply_login" "$_rgla_verify_id" "gitlab"
+				printf '%s' "$_rgla_verify_id"
+				return 0
+			fi
+			;;
+	esac
+
+	# All lookups failed
+	return 0
+}
 
 tmpfile="$(mktemp)"
 refs_file="$(mktemp)"
@@ -157,6 +240,17 @@ do
 	# Get labels
 	labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$ref" | sed '/^$/d' | head -1)"
 	labels="$(printf '%s' "$labels" | sed 's/^[[:space:]]*//')"
+
+	# Get assignee (canonical email)
+	# Use full trailer format to distinguish "no trailer" from "empty value"
+	_assignee_line="$(git log --format='%(trailers:key=Assignee)' "$ref" | sed '/^$/d' | head -1)"
+	has_assignee=0
+	assignee_email=""
+	if test -n "$_assignee_line"
+	then
+		has_assignee=1
+		assignee_email="$(printf '%s' "$_assignee_line" | sed 's/^Assignee:[[:space:]]*//')"
+	fi
 
 	# Check for Provider-ID in commit chain
 	existing_pid=""
@@ -291,6 +385,28 @@ $cmt_body"
 						;;
 				esac
 
+				# Sync assignee (only if local issue has an opinion)
+				if test "$has_assignee" -eq 1
+				then
+					if test -n "$assignee_email"
+					then
+						_sync_user_id="$(resolve_gitlab_assignee "$assignee_email")"
+						if test -n "$_sync_user_id"
+						then
+							glab api --method PUT "projects/${gl_project_encoded}/issues/${issue_iid}" \
+								--field "assignee_ids[]=$_sync_user_id" >/dev/null 2>&1 || {
+								printf 'Warning: failed to sync assignee to #%s\n' "$issue_iid" >&2
+							}
+						else
+							printf 'Warning: could not resolve %s to GitLab user for %s\n' "$assignee_email" "$short_id" >&2
+						fi
+					else
+						# Explicitly unassigned in local issue — clear assignees
+						glab api --method PUT "projects/${gl_project_encoded}/issues/${issue_iid}" \
+							--field "assignee_ids[]=0" >/dev/null 2>&1 || true
+					fi
+				fi
+
 				synced=$((synced + 1))
 				if test "$new_comments_exported" -gt 0
 				then
@@ -317,13 +433,43 @@ $cmt_body"
 		continue
 	fi
 
+	# Resolve assignee email to GitLab user ID
+	_export_assignee_id=""
+	if test "$has_assignee" -eq 1 && test -n "$assignee_email"
+	then
+		_export_assignee_id="$(resolve_gitlab_assignee "$assignee_email")"
+		if test -z "$_export_assignee_id"
+		then
+			printf 'Warning: could not resolve %s to GitLab user for %s\n' "$assignee_email" "$short_id" >&2
+		fi
+	fi
+
 	# Create issue on GitLab using glab api
-	if test -n "$labels"
+	if test -n "$labels" && test -n "$_export_assignee_id"
+	then
+		create_response="$(glab api --method POST "projects/${gl_project_encoded}/issues" \
+			--field "title=$title" \
+			--field "description=$body" \
+			--field "labels=$labels" \
+			--field "assignee_ids[]=$_export_assignee_id" 2>&1)" || {
+			echo "error: failed to create issue on GitLab" >&2
+			continue
+		}
+	elif test -n "$labels"
 	then
 		create_response="$(glab api --method POST "projects/${gl_project_encoded}/issues" \
 			--field "title=$title" \
 			--field "description=$body" \
 			--field "labels=$labels" 2>&1)" || {
+			echo "error: failed to create issue on GitLab" >&2
+			continue
+		}
+	elif test -n "$_export_assignee_id"
+	then
+		create_response="$(glab api --method POST "projects/${gl_project_encoded}/issues" \
+			--field "title=$title" \
+			--field "description=$body" \
+			--field "assignee_ids[]=$_export_assignee_id" 2>&1)" || {
 			echo "error: failed to create issue on GitLab" >&2
 			continue
 		}

@@ -7,6 +7,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -105,6 +106,9 @@ git rev-parse --git-dir >/dev/null 2>&1 || {
 	exit 128
 }
 
+# Source shared library for user cache functions
+. "$(dirname "$0")/git-issue-lib"
+
 # Check prerequisites
 command -v jq >/dev/null 2>&1 || {
 	echo "error: 'jq' is required but not found" >&2
@@ -171,6 +175,79 @@ then
 		exit 1
 	fi
 fi
+
+# Auto-seed user cache from authenticated user
+if test "$dry_run" -eq 0 && test -n "$api_token"
+then
+	_authed_user="$(curl -s -H "Authorization: token $api_token" "$api_url/api/v1/user" 2>/dev/null || echo '{}')"
+	_authed_email="$(printf '%s' "$_authed_user" | jq -r '.email // empty')"
+	_authed_login="$(printf '%s' "$_authed_user" | jq -r '.login // empty')"
+	_authed_id="$(printf '%s' "$_authed_user" | jq -r '.id // empty')"
+
+	if test -n "$_authed_email" && test -n "$_authed_login" && test -n "$_authed_id"
+	then
+		cache_platform_user "$_authed_email" "$_authed_login" "$_authed_id" "$platform"
+	fi
+fi
+
+# Resolve an email to a Gitea/Forgejo username for assignee export
+# Uses three-tier lookup: cache -> Gitea user search API -> noreply pattern
+resolve_gitea_assignee() {
+	_rta_email="$1"
+
+	# Tier 1: Persistent cache (populated during import)
+	_rta_login="$(lookup_cached_login "$_rta_email" "$platform")"
+	if test -n "$_rta_login"
+	then
+		# Verify the user still exists on the instance
+		_rta_verify="$(curl -s -H "Authorization: token $api_token" \
+			"$api_url/api/v1/users/$_rta_login" 2>/dev/null || echo '{}')"
+		_rta_verify_id="$(printf '%s' "$_rta_verify" | jq -r '.id // empty')"
+		if test -n "$_rta_verify_id"
+		then
+			printf '%s' "$_rta_login"
+			return 0
+		fi
+	fi
+
+	# Tier 2: Gitea user search API (works for public emails)
+	_rta_search="$(curl -s -H "Authorization: token $api_token" \
+		"$api_url/api/v1/users/search?q=$(printf '%s' "$_rta_email" | jq -sRr @uri)" 2>/dev/null || echo '{"data":[]}')"
+	_rta_found_login="$(printf '%s' "$_rta_search" | jq -r '.data[0].login // empty')"
+	_rta_found_id="$(printf '%s' "$_rta_search" | jq -r '.data[0].id // empty')"
+	_rta_found_email="$(printf '%s' "$_rta_search" | jq -r '.data[0].email // empty')"
+
+	if test -n "$_rta_found_login"
+	then
+		# Verify the search result email matches
+		if test "$_rta_found_email" = "$_rta_email"
+		then
+			cache_platform_user "$_rta_email" "$_rta_found_login" "$_rta_found_id" "$platform"
+			printf '%s' "$_rta_found_login"
+			return 0
+		fi
+	fi
+
+	# Tier 3: Extract username from noreply email pattern
+	case "$_rta_email" in
+		*@users.noreply.${platform}.com)
+			_rta_noreply_login="${_rta_email%@users.noreply.${platform}.com}"
+			# Verify user exists on the instance
+			_rta_noreply_verify="$(curl -s -H "Authorization: token $api_token" \
+				"$api_url/api/v1/users/$_rta_noreply_login" 2>/dev/null || echo '{}')"
+			_rta_noreply_id="$(printf '%s' "$_rta_noreply_verify" | jq -r '.id // empty')"
+			if test -n "$_rta_noreply_id"
+			then
+				cache_platform_user "$_rta_email" "$_rta_noreply_login" "$_rta_noreply_id" "$platform"
+				printf '%s' "$_rta_noreply_login"
+				return 0
+			fi
+			;;
+	esac
+
+	# All lookups failed
+	return 0
+}
 
 # Get the empty tree SHA
 empty_tree="$(git hash-object -t tree /dev/null)"
@@ -296,6 +373,17 @@ do
 	# Get labels
 	labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$ref" | sed '/^$/d' | head -1)"
 	labels="$(printf '%s' "$labels" | sed 's/^[[:space:]]*//')"
+
+	# Get assignee (canonical email)
+	# Use full trailer format to distinguish "no trailer" from "empty value"
+	_assignee_line="$(git log --format='%(trailers:key=Assignee)' "$ref" | sed '/^$/d' | head -1)"
+	has_assignee=0
+	assignee_email=""
+	if test -n "$_assignee_line"
+	then
+		has_assignee=1
+		assignee_email="$(printf '%s' "$_assignee_line" | sed 's/^Assignee:[[:space:]]*//')"
+	fi
 
 	# Check for Provider-ID in commit chain
 	existing_pid=""
@@ -440,6 +528,34 @@ $cmt_body"
 						;;
 				esac
 
+				# Sync assignee (only if local issue has an opinion)
+				if test "$has_assignee" -eq 1
+				then
+					if test -n "$assignee_email"
+					then
+						_sync_login="$(resolve_gitea_assignee "$assignee_email")"
+						if test -n "$_sync_login"
+						then
+							curl -s -f -X PATCH \
+								-H "Authorization: token $api_token" \
+								-H "Content-Type: application/json" \
+								-d "$(jq -n --arg a "$_sync_login" '{assignee: $a}')" \
+								"$api_url/api/v1/repos/$owner/$repo/issues/$issue_number" >/dev/null 2>&1 || {
+								printf 'Warning: failed to sync assignee %s to #%s\n' "$_sync_login" "$issue_number" >&2
+							}
+						else
+							printf 'Warning: could not resolve %s to %s user for %s\n' "$assignee_email" "$platform" "$short_id" >&2
+						fi
+					else
+						# Explicitly unassigned in local issue
+						curl -s -f -X PATCH \
+							-H "Authorization: token $api_token" \
+							-H "Content-Type: application/json" \
+							-d '{"assignee": ""}' \
+							"$api_url/api/v1/repos/$owner/$repo/issues/$issue_number" >/dev/null 2>&1 || true
+					fi
+				fi
+
 				synced=$((synced + 1))
 				if test "$new_comments_exported" -gt 0
 				then
@@ -500,12 +616,33 @@ $cmt_body"
 		fi
 	fi
 
+	# Resolve assignee email to platform username
+	assignee_login=""
+	if test "$has_assignee" -eq 1 && test -n "$assignee_email"
+	then
+		assignee_login="$(resolve_gitea_assignee "$assignee_email")"
+		if test -z "$assignee_login"
+		then
+			printf 'Warning: could not resolve %s to %s user for %s\n' "$assignee_email" "$platform" "$short_id" >&2
+		fi
+	fi
+
 	# Create issue on Gitea/Forgejo
-	create_payload="$(jq -n \
-		--arg title "$title" \
-		--arg body "$body" \
-		--argjson labels "$labels_array" \
-		'{title: $title, body: $body, labels: $labels}')"
+	if test -n "$assignee_login"
+	then
+		create_payload="$(jq -n \
+			--arg title "$title" \
+			--arg body "$body" \
+			--argjson labels "$labels_array" \
+			--arg assignee "$assignee_login" \
+			'{title: $title, body: $body, labels: $labels, assignee: $assignee}')"
+	else
+		create_payload="$(jq -n \
+			--arg title "$title" \
+			--arg body "$body" \
+			--argjson labels "$labels_array" \
+			'{title: $title, body: $body, labels: $labels}')"
+	fi
 
 	create_response="$(curl -s -X POST \
 		-H "Authorization: token $api_token" \
