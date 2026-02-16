@@ -6,7 +6,6 @@
 #
 
 set -e
-set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -300,10 +299,6 @@ do
 					synced=$((synced + 1))
 					continue
 				fi
-
-				# Get existing GitHub comment IDs and bodies for deduplication
-				gh_comments_json="$(gh api --paginate "/repos/$gh_owner/$gh_reponame/issues/$issue_number/comments?per_page=100" 2>/dev/null || echo '[]')"
-				gh_comment_ids="$(printf '%s' "$gh_comments_json" | jq -r '.[].id' | sed 's/^/github:'"$gh_owner\/$gh_reponame"'#comment-/')"
 
 				# Get root commit
 				root="$(git rev-list --max-parents=0 "$ref")"

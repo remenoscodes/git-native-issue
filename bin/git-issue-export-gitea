@@ -7,7 +7,6 @@
 #
 
 set -e
-set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -404,10 +403,6 @@ do
 					synced=$((synced + 1))
 					continue
 				fi
-
-				# Get existing comments for deduplication
-				existing_comments="$(curl -s -f -H "Authorization: token $api_token" \
-					"$api_url/api/v1/repos/$owner/$repo/issues/$issue_number/comments" 2>/dev/null || echo '[]')"
 
 				# Get all commit SHAs that have already been exported
 				exported_commits="$(git log --format='%(trailers:key=Exported-Commit,valueonly)' "$ref" | sed '/^$/d' | sed 's/^[[:space:]]*//')"

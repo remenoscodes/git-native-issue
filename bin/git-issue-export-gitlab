@@ -6,7 +6,6 @@
 #
 
 set -e
-set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -271,9 +270,6 @@ do
 					synced=$((synced + 1))
 					continue
 				fi
-
-				# Get existing GitLab note IDs for deduplication
-				gl_notes_json="$(glab api --paginate "projects/${gl_project_encoded}/issues/${issue_iid}/notes?per_page=100" 2>/dev/null || echo '[]')"
 
 				# Get all commit SHAs that have already been exported
 				exported_commits="$(git log --format='%(trailers:key=Exported-Commit,valueonly)' "$ref" | sed '/^$/d' | sed 's/^[[:space:]]*//')"

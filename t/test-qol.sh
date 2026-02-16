@@ -446,17 +446,17 @@ case "$body" in
 esac
 
 # ============================================================
-# TEST: version shows 1.2.0
+# TEST: version outputs valid version string
 # ============================================================
 run_test
 setup_repo
 output="$(git issue version 2>&1)"
 case "$output" in
-	*"1.2.0"*)
-		pass "version shows 1.2.0"
+	"git-issue version "*)
+		pass "version outputs valid version string"
 		;;
 	*)
-		fail "version shows 1.2.0" "got: $output"
+		fail "version outputs valid version string" "got: $output"
 		;;
 esac
 

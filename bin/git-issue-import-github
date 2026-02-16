@@ -6,7 +6,6 @@
 #
 
 set -e
-set -o pipefail
 
 usage() {
 	cat <<EOF

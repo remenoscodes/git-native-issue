@@ -7,7 +7,6 @@
 #
 
 set -e
-set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -189,9 +188,6 @@ then
 	echo "       response: $version_response" >&2
 	exit 1
 fi
-
-# Auto-detect platform from version endpoint
-detected_platform="$(printf '%s' "$version_response" | jq -r '.version // empty' | grep -i forgejo >/dev/null 2>&1 && echo "forgejo" || echo "gitea")"
 
 # Build Provider-ID index from existing issues
 _import_tmpdir="$(mktemp -d)"

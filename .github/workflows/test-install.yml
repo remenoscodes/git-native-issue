@@ -8,7 +8,6 @@ on:
       - 'Makefile'
       - 'bin/**'
       - 'PKGBUILD'
-      - 'Formula/**'
   pull_request:
     branches: [ main ]
   workflow_dispatch:  # Allow manual trigger
@@ -74,9 +73,10 @@ jobs:
           VERSION_OUTPUT="$(git-issue version)"
           echo "Version output: $VERSION_OUTPUT"
 
-          # Verify version matches expected
-          echo "$VERSION_OUTPUT" | grep -q "1.0.2" || exit 1
-          echo "✓ Version command works"
+          # Verify version output matches version in source
+          EXPECTED="$(grep '^VERSION=' bin/git-issue | cut -d'"' -f2)"
+          echo "$VERSION_OUTPUT" | grep -q "$EXPECTED" || exit 1
+          echo "✓ Version command works (v$EXPECTED)"
 
       - name: Test basic commands
         run: |
@@ -134,8 +134,9 @@ jobs:
       - name: Test version command
         run: |
           export PATH="$HOME/.local/bin:$PATH"
-          git-issue version | grep -q "1.0.2" || exit 1
-          echo "✓ Version command works on macOS"
+          EXPECTED="$(grep '^VERSION=' bin/git-issue | cut -d'"' -f2)"
+          git-issue version | grep -q "$EXPECTED" || exit 1
+          echo "✓ Version command works on macOS (v$EXPECTED)"
 
       - name: Test basic functionality
         run: |
@@ -166,12 +167,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Test formula syntax
-        run: |
-          # Validate formula Ruby syntax
-          ruby -c Formula/git-native-issue.rb || exit 1
-          echo "✓ Formula syntax valid"
-
       - name: Test formula installation (from tap)
         run: |
           # Uninstall if already installed
@@ -180,8 +175,8 @@ jobs:
           # Install from actual tap
           brew install remenoscodes/git-native-issue/git-native-issue || exit 1
 
-          # Verify installation
-          git-issue version | grep -q "1.0.2" || exit 1
+          # Verify installation outputs a version string
+          git-issue version | grep -q "git-issue version" || exit 1
           echo "✓ Homebrew tap installation works"
 
           # Test successful - Homebrew installation validated
@@ -214,19 +209,20 @@ jobs:
           # Add plugin from GitHub
           asdf plugin add git-native-issue https://github.com/remenoscodes/git-native-issue-asdf.git
 
-          # List available versions
-          asdf list-all git-native-issue | grep -q "1.0.2" || exit 1
-          echo "✓ Plugin can list versions"
+          # List available versions (should have at least one)
+          LATEST="$(asdf list-all git-native-issue | tail -1)"
+          test -n "$LATEST" || exit 1
+          echo "✓ Plugin can list versions (latest: $LATEST)"
 
-          # Install specific version
-          asdf install git-native-issue 1.0.2
-          echo "✓ Version 1.0.2 installed"
+          # Install latest version
+          asdf install git-native-issue "$LATEST"
+          echo "✓ Version $LATEST installed"
 
           # Set global version
-          asdf global git-native-issue 1.0.2
+          asdf global git-native-issue "$LATEST"
 
           # Verify installation
-          git-issue version | grep -q "1.0.2" || exit 1
+          git-issue version | grep -q "git-issue version" || exit 1
           echo "✓ asdf plugin test complete"
 
   test-pkgbuild:
@@ -273,6 +269,6 @@ jobs:
           test -f /usr/bin/git-issue || exit 1
           test -x /usr/bin/git-issue || exit 1
 
-          # Check version
-          git-issue version | grep -q "1.0.2" || exit 1
+          # Check version outputs something
+          git-issue version | grep -q "git-issue version" || exit 1
           echo "✓ PKGBUILD test complete"

@@ -100,8 +100,8 @@ normalize_labels() {
 # Validate git user configuration before creating commits
 # Exits with code 128 if user.name or user.email is not set
 validate_git_identity() {
-	_name="$(git config user.name 2>/dev/null || true)"
-	_email="$(git config user.email 2>/dev/null || true)"
+	_name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-$(git config user.name 2>/dev/null || true)}}"
+	_email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-$(git config user.email 2>/dev/null || true)}}"
 
 	if test -z "$_name"
 	then
