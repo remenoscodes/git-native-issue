@@ -194,9 +194,8 @@ jobs:
 
       - name: Install asdf
         run: |
-          git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.14.0
+          git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.16.5
           echo '. "$HOME/.asdf/asdf.sh"' >> ~/.bashrc
-          echo '. "$HOME/.asdf/completions/asdf.bash"' >> ~/.bashrc
 
       - name: Install dependencies
         run: |
@@ -211,8 +210,8 @@ jobs:
           # Add plugin from GitHub
           asdf plugin add git-native-issue https://github.com/remenoscodes/git-native-issue-asdf.git
 
-          # List available versions (should have at least one)
-          LATEST="$(asdf list-all git-native-issue | tail -1)"
+          # List available versions and pick the latest
+          LATEST="$(asdf list all git-native-issue | head -1)"
           test -n "$LATEST" || exit 1
           echo "✓ Plugin can list versions (latest: $LATEST)"
 
@@ -220,8 +219,8 @@ jobs:
           asdf install git-native-issue "$LATEST"
           echo "✓ Version $LATEST installed"
 
-          # Set global version
-          asdf global git-native-issue "$LATEST"
+          # Set version
+          asdf set git-native-issue "$LATEST"
 
           # Verify installation
           git-issue version | grep -q "git-issue version" || exit 1
