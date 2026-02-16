@@ -13,7 +13,7 @@ optdepends=(
     'github-cli: for GitHub bridge functionality'
 )
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/remenoscodes/git-native-issue/releases/download/v${pkgver}/git-native-issue-v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('40b1cb3f92c457452e201e23e7327d53896bba1c09da8519467c7f402f35075e')
 
 package() {
     cd "${srcdir}/git-native-issue-v${pkgver}"
