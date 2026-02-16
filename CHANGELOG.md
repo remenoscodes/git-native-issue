@@ -7,6 +7,54 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-02-15
+
+### Added
+
+- **Bidirectional assignee sync** across all platform bridges (GitHub, GitLab, Gitea/Forgejo)
+  - Import bridges resolve platform usernames to canonical email addresses
+  - Export bridges resolve canonical emails back to platform identities
+  - Three-tier reverse lookup: persistent cache → platform search API → noreply pattern extraction
+  - Auto-seed cache from authenticated CLI user on export (no manual setup needed)
+  - Unassign support: clearing assignee locally (`-a ""`) propagates to platforms
+- **Persistent user cache** (`git-issue-lib`) for email ↔ platform identity mapping
+  - Stored in `.git/issue-user-cache.<platform>` (per-repo, per-platform)
+  - Functions: `cache_platform_user`, `lookup_cached_login`, `lookup_cached_user_id`
+  - Populated during import, used during export for reverse lookup
+- **Assignee email validation** in `git-issue-create` and `git-issue-edit`
+  - Validates basic email format: `user@domain.tld`
+  - Helpful error messages guide users to correct format
+- **Label validation and normalization** (`normalize_labels()` in git-issue-lib)
+  - Labels containing commas rejected with clear error
+  - Duplicate labels automatically deduplicated
+  - Whitespace normalized consistently
+- **Concurrency retry mechanism** (`update_ref_with_retry()` in git-issue-lib)
+  - Optimistic locking with CAS (Compare-And-Swap) for ref updates
+  - Retries up to 3 times with exponential backoff (100ms, 200ms)
+  - Clear error messages distinguish CAS failures from other errors
+- **Git identity validation** (`validate_git_identity()` in git-issue-lib)
+  - Checks `user.name` and `user.email` before any git operations
+  - Exits early with helpful error messages if missing
+- New test suites:
+  - `t/test-assignee-validation.sh` — 22 tests (email validation, cache, filters, unassign)
+  - `t/test-labels-validation.sh` — 12 tests (comma rejection, dedup, normalization)
+  - `t/test-concurrency.sh` — 8 tests (CAS retry, identity validation)
+
+### Fixed
+
+- **git-issue-edit**: Could not unassign with `-a ""` — added `has_assignee_set` flag to distinguish "not provided" from "empty value"
+- **git-issue-show**: Empty assignee/priority/milestone values were skipped by `sed '/^$/d'`, causing stale values to show through
+- **git-issue-show**: Trailer parsing failed when commit body contained only trailers (no description) — fixed by prepending newline before `git interpret-trailers --parse`
+- **git-issue-ls**: Empty assignee/priority/milestone values overwritten by older non-empty values in awk — added `has_*` flags
+- **git-issue-export-github**: `head -1` on `%(trailers:key=Assignee,valueonly)` captured empty line from Provider-ID commit (no Assignee trailer), causing active unassign on every re-export — switched to full trailer format with `has_assignee` flag
+
+### Changed
+
+- All platform bridge imports now resolve usernames to canonical emails and populate persistent cache
+- All platform bridge exports now resolve canonical emails to platform identities for assignee assignment
+- `git-issue-edit`, `git-issue-state`, `git-issue-comment` now use `update_ref_with_retry()` for ref updates
+- `git-issue-edit`, `git-issue-state`, `git-issue-comment` now validate git identity before operations
+
 ## [1.2.2] - 2026-02-09
 
 ### Fixed
@@ -247,6 +295,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.3.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.2...v1.3.0
+[1.2.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.3...v1.1.0
 [1.0.3]: https://github.com/remenoscodes/git-native-issue/compare/v1.0.2...v1.0.3
