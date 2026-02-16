@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-02-15
+
+### Fixed
+
+- **GitHub assignee resolution for private emails** — users with non-public email addresses can now be resolved to their GitHub username via commit history
+  - Upgraded from three-tier to five-tier lookup: cache → noreply pattern → repo commits API → search commits API → search users API
+  - Tiers 2-3 use GitHub's Commits API which resolves private emails (linked via account settings)
+  - Noreply pattern moved earlier (free, no API call needed)
+  - Search users API demoted to last resort (only works for public emails)
+- **Auto-seed user cache on GitHub export** — the authenticated `gh` user's email→username mapping is cached at startup, removing the need for a prior import to populate the cache
+
 ## [1.3.0] - 2026-02-15
 
 ### Added
@@ -295,6 +306,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.3.1]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.0...v1.2.1
