@@ -1,7 +1,7 @@
 # Maintainer: Emerson Soares <remenoscodes@gmail.com>
 
 pkgname=git-native-issue
-pkgver=1.0.2
+pkgver=1.3.1
 pkgrel=1
 pkgdesc="Distributed issue tracking using Git's native data model"
 arch=('any')
@@ -13,7 +13,7 @@ optdepends=(
     'github-cli: for GitHub bridge functionality'
 )
 source=("${pkgname}-${pkgver}.tar.gz::https://github.com/remenoscodes/git-native-issue/releases/download/v${pkgver}/git-native-issue-v${pkgver}.tar.gz")
-sha256sums=('e9d4cdf6239a7175a651b8dc89bef1b133500306b5e7fe6cd78025f83082d40d')
+sha256sums=('8848a70eb146d6f9695a4b78e8d36804026d95ab77658682b3e343c82440a5d1')
 
 package() {
     cd "${srcdir}/git-native-issue-v${pkgver}"
