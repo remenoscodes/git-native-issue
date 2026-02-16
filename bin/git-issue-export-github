@@ -101,6 +101,23 @@ gh auth status >/dev/null 2>&1 || {
 
 . "$(dirname "$0")/git-issue-lib"
 
+# Auto-seed cache from authenticated gh user (free, no extra API call needed)
+if test "$dry_run" -eq 0
+then
+	_seed_user="$(gh api /user 2>/dev/null || echo '{}')"
+	_seed_login="$(printf '%s' "$_seed_user" | jq -r '.login // empty')"
+	_seed_id="$(printf '%s' "$_seed_user" | jq -r '.id // empty')"
+	_seed_email="$(git config user.email 2>/dev/null || true)"
+	if test -n "$_seed_login" && test -n "$_seed_id" && test -n "$_seed_email"
+	then
+		_existing="$(lookup_cached_login "$_seed_email" "github")"
+		if test -z "$_existing"
+		then
+			cache_platform_user "$_seed_email" "$_seed_login" "$_seed_id" "github"
+		fi
+	fi
+fi
+
 tmpfile="$(mktemp)"
 refs_file="$(mktemp)"
 trap 'rm -f "$tmpfile" "$refs_file"' EXIT
@@ -115,11 +132,16 @@ synced=0
 target_prefix="github:$gh_owner/$gh_reponame#"
 
 # Resolve an email to a GitHub username for assignee export
-# Uses three-tier lookup: cache → GitHub search API → noreply pattern
+# Five-tier lookup optimized by cost and coverage:
+#   0. Cache (free)
+#   1. Noreply pattern (free, deterministic)
+#   2. Repo commits API (5000 req/hr, works for private emails)
+#   3. Search commits API (30 req/min, works for private emails across all repos)
+#   4. Search users API (30 req/min, public emails only)
 resolve_github_assignee() {
 	_rga_email="$1"
 
-	# Tier 1: Persistent cache (populated during import)
+	# Tier 0: Persistent cache (populated during import or previous export)
 	_rga_login="$(lookup_cached_login "$_rga_email" "github")"
 	if test -n "$_rga_login"
 	then
@@ -144,19 +166,7 @@ resolve_github_assignee() {
 		return 0
 	fi
 
-	# Tier 2: GitHub search API (works for public emails)
-	_rga_search="$(gh api "/search/users?q=${_rga_email}+in:email" 2>/dev/null || echo '{}')"
-	_rga_found_login="$(printf '%s' "$_rga_search" | jq -r '.items[0].login // empty')"
-	_rga_found_id="$(printf '%s' "$_rga_search" | jq -r '.items[0].id // empty')"
-
-	if test -n "$_rga_found_login"
-	then
-		cache_platform_user "$_rga_email" "$_rga_found_login" "$_rga_found_id" "github"
-		printf '%s' "$_rga_found_login"
-		return 0
-	fi
-
-	# Tier 3: Extract username from noreply email pattern
+	# Tier 1: Extract username from noreply email pattern (free, no API)
 	case "$_rga_email" in
 		*@users.noreply.github.com)
 			_rga_noreply_login="${_rga_email%@users.noreply.github.com}"
@@ -177,6 +187,43 @@ resolve_github_assignee() {
 			fi
 			;;
 	esac
+
+	# Tier 2: Repo commits API (5000 req/hr, works for private emails)
+	# GitHub links commits to accounts via email settings, even when email is private
+	_rga_repo_commit="$(gh api "/repos/$gh_owner/$gh_reponame/commits?author=$(printf '%s' "$_rga_email" | jq -sRr @uri)&per_page=1" 2>/dev/null || echo '[]')"
+	_rga_repo_login="$(printf '%s' "$_rga_repo_commit" | jq -r '.[0].author.login // empty')"
+	_rga_repo_id="$(printf '%s' "$_rga_repo_commit" | jq -r '.[0].author.id // empty')"
+
+	if test -n "$_rga_repo_login"
+	then
+		cache_platform_user "$_rga_email" "$_rga_repo_login" "$_rga_repo_id" "github"
+		printf '%s' "$_rga_repo_login"
+		return 0
+	fi
+
+	# Tier 3: Search commits API (30 req/min, works for private emails across all repos)
+	_rga_commit_search="$(gh api "/search/commits?q=author-email:$(printf '%s' "$_rga_email" | jq -sRr @uri)&per_page=1" 2>/dev/null || echo '{}')"
+	_rga_commit_login="$(printf '%s' "$_rga_commit_search" | jq -r '.items[0].author.login // empty')"
+	_rga_commit_id="$(printf '%s' "$_rga_commit_search" | jq -r '.items[0].author.id // empty')"
+
+	if test -n "$_rga_commit_login"
+	then
+		cache_platform_user "$_rga_email" "$_rga_commit_login" "$_rga_commit_id" "github"
+		printf '%s' "$_rga_commit_login"
+		return 0
+	fi
+
+	# Tier 4: Search users API (30 req/min, public emails only — last resort)
+	_rga_search="$(gh api "/search/users?q=$(printf '%s' "$_rga_email" | jq -sRr @uri)+in:email" 2>/dev/null || echo '{}')"
+	_rga_found_login="$(printf '%s' "$_rga_search" | jq -r '.items[0].login // empty')"
+	_rga_found_id="$(printf '%s' "$_rga_search" | jq -r '.items[0].id // empty')"
+
+	if test -n "$_rga_found_login"
+	then
+		cache_platform_user "$_rga_email" "$_rga_found_login" "$_rga_found_id" "github"
+		printf '%s' "$_rga_found_login"
+		return 0
+	fi
 
 	# All lookups failed
 	return 0
