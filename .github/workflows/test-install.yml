@@ -185,6 +185,7 @@ jobs:
   test-asdf-plugin:
     name: Test asdf plugin
     runs-on: ubuntu-latest
+    continue-on-error: true  # asdf plugin repo may lag behind releases
 
     steps:
       - name: Checkout code
