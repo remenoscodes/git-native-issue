@@ -1,7 +1,7 @@
 # Maintainer: Emerson Soares <remenoscodes@gmail.com>
 
 pkgname=git-native-issue
-pkgver=1.3.2
+pkgver=1.3.3
 pkgrel=1
 pkgdesc="Distributed issue tracking using Git's native data model"
 arch=('any')

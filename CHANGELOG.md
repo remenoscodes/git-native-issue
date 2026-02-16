@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-02-16
+
+### Fixed
+
+- **git-issue-import-github**: Missing `git-issue-lib` source caused `cache_platform_user: command not found` during import/sync
+- **asdf CI test**: Updated to asdf v0.16.5 with correct command syntax (`list all`, `set`), pick newest version instead of oldest
+
 ## [1.3.2] - 2026-02-16
 
 ### Fixed
@@ -321,6 +328,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.3.3]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.2...v1.3.0
