@@ -8,6 +8,7 @@ on:
       - 'Makefile'
       - 'bin/**'
       - 'PKGBUILD'
+      - '.github/workflows/test-install.yml'
   pull_request:
     branches: [ main ]
   workflow_dispatch:  # Allow manual trigger
