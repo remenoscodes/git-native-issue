@@ -109,6 +109,8 @@ gh auth status >/dev/null 2>&1 || {
 	exit 1
 }
 
+. "$(dirname "$0")/git-issue-lib"
+
 # Build Provider-ID index from existing issues
 _import_tmpdir="$(mktemp -d)"
 trap 'rm -rf "$_import_tmpdir"' EXIT
