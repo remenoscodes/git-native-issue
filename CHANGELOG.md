@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-02-16
+
+### Fixed
+
+- **CI workflow**: `validate_git_identity()` now respects `GIT_AUTHOR_NAME`/`GIT_COMMITTER_NAME` environment variables, matching Git's own identity resolution behavior
+- **Lint workflow**: Removed `set -o pipefail` from 9 POSIX sh scripts (shellcheck SC3040) and removed 5 unused variables (SC2034)
+- **Test Installation workflow**: Replaced hardcoded version checks with dynamic extraction from source; removed stale `Formula/` syntax test (formula moved to tap repo in v1.0.3); marked asdf plugin test as non-blocking
+- **PKGBUILD**: Updated to v1.3.1 with correct sha256sum
+- **Test suites**: Replaced hardcoded version assertions with format-based checks in test-issue.sh, test-merge.sh, and test-qol.sh
+
+### Housekeeping
+
+- Closed 17 issues: 11 duplicates, 5 completed items, 1 superseded
+- Issue tracker cleaned from 33 to 16 open issues
+
 ## [1.3.1] - 2026-02-15
 
 ### Fixed
@@ -306,6 +321,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.3.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.0...v1.3.1
 [1.3.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.2...v1.3.0
 [1.2.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.2.1...v1.2.2
