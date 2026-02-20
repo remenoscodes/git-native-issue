@@ -1,0 +1,27 @@
+# Proto TOML plugin for git-native-issue
+# https://github.com/remenoscodes/git-native-issue
+#
+# Distributed issue tracking embedded in Git.
+# POSIX shell scripts — works on any OS with Git installed.
+
+name = "git-native-issue"
+type = "cli"
+
+[platform.linux]
+archive-prefix = "git-native-issue-v{version}"
+exe-path = "bin/git-issue"
+download-file = "git-native-issue-v{version}.tar.gz"
+
+[platform.macos]
+archive-prefix = "git-native-issue-v{version}"
+exe-path = "bin/git-issue"
+download-file = "git-native-issue-v{version}.tar.gz"
+
+[install]
+download-url = "https://github.com/remenoscodes/git-native-issue/releases/download/v{version}/{download_file}"
+
+[resolve]
+git-url = "https://github.com/remenoscodes/git-native-issue"
+
+[detect]
+version-files = [".git-issue-version"]
