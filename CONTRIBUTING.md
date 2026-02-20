@@ -7,7 +7,7 @@ Thanks for your interest in contributing! This project welcomes contributions fr
 ```bash
 git clone https://github.com/remenoscodes/git-native-issue.git
 cd git-native-issue
-make test    # Run all 153 tests
+make test    # Run all 282 tests
 ```
 
 ## Development Setup

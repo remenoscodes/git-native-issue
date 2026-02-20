@@ -143,7 +143,7 @@ yay -S git-native-issue      # Coming soon
 
 ```bash
 git issue version
-# git-issue version 1.0.2
+# git-issue version 1.3.3
 ```
 
 ## Commands
@@ -621,7 +621,7 @@ the deliverable that makes ecosystem adoption possible.
 make test
 ```
 
-153 tests: 76 core + 36 bridge + 20 merge/fsck + 21 QoL.
+282 tests: core (77), bridge (37), merge/fsck (21), QoL (22), validation (36), quality (59), edge cases (13), comment sync (8), concurrency (9).
 
 ## Performance Notes
 

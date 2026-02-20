@@ -20,7 +20,7 @@ curl -sSL https://raw.githubusercontent.com/remenoscodes/git-native-issue/main/i
 
 ```bash
 git issue version
-# git-issue version 1.0.2
+# git-issue version 1.3.3
 ```
 
 ## Your First Issue
