@@ -1,0 +1,167 @@
+name: Quality Gates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  static-checks:
+    name: Static Analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify set -o pipefail in all bin scripts
+        run: |
+          failed=0
+          for script in bin/git-issue-*; do
+            # Skip the sourced library (not executed directly)
+            case "$script" in
+              *git-issue-lib) continue ;;
+            esac
+            if ! grep -q 'set -o pipefail' "$script"; then
+              echo "FAIL: $script missing 'set -o pipefail'"
+              failed=1
+            fi
+          done
+          # Also check the main dispatcher
+          if ! grep -q 'set -o pipefail' bin/git-issue; then
+            echo "FAIL: bin/git-issue missing 'set -o pipefail'"
+            failed=1
+          fi
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::One or more scripts missing set -o pipefail"
+            exit 1
+          fi
+          echo "All scripts have set -o pipefail"
+
+      - name: Verify set -e in all bin scripts
+        run: |
+          failed=0
+          for script in bin/git-issue bin/git-issue-*; do
+            case "$script" in
+              *git-issue-lib) continue ;;
+            esac
+            if ! grep -q 'set -e' "$script"; then
+              echo "FAIL: $script missing 'set -e'"
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::One or more scripts missing set -e"
+            exit 1
+          fi
+          echo "All scripts have set -e"
+
+  test-core:
+    name: Core Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI Test"
+          git config --global user.email "ci@test.local"
+
+      - name: Run core test suite
+        run: sh t/test-issue.sh
+
+  test-failure-modes:
+    name: Failure Mode Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI Test"
+          git config --global user.email "ci@test.local"
+
+      - name: Run failure mode tests
+        run: sh t/test-failure-modes.sh
+
+  test-environment:
+    name: Environment Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI Test"
+          git config --global user.email "ci@test.local"
+
+      - name: Run environment tests
+        run: sh t/test-environment.sh
+
+  test-properties:
+    name: Property Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI Test"
+          git config --global user.email "ci@test.local"
+
+      - name: Run property-based tests
+        run: sh t/test-properties.sh
+
+  test-validation:
+    name: Validation Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure git identity
+        run: |
+          git config --global user.name "CI Test"
+          git config --global user.email "ci@test.local"
+
+      - name: Run label validation tests
+        run: sh t/test-labels-validation.sh
+
+      - name: Run assignee validation tests
+        run: sh t/test-assignee-validation.sh
+
+      - name: Run concurrency tests
+        run: sh t/test-concurrency.sh
+
+  quality-gate:
+    name: Quality Gate
+    needs:
+      - static-checks
+      - test-core
+      - test-failure-modes
+      - test-environment
+      - test-properties
+      - test-validation
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check all gates passed
+        run: |
+          echo "== Quality Gate Results =="
+          results="${{ needs.static-checks.result }},${{ needs.test-core.result }},${{ needs.test-failure-modes.result }},${{ needs.test-environment.result }},${{ needs.test-properties.result }},${{ needs.test-validation.result }}"
+          echo "static-checks:     ${{ needs.static-checks.result }}"
+          echo "test-core:         ${{ needs.test-core.result }}"
+          echo "test-failure-modes: ${{ needs.test-failure-modes.result }}"
+          echo "test-environment:  ${{ needs.test-environment.result }}"
+          echo "test-properties:   ${{ needs.test-properties.result }}"
+          echo "test-validation:   ${{ needs.test-validation.result }}"
+          echo "========================="
+          failed=0
+          for result in $(echo "$results" | tr ',' ' '); do
+            if [ "$result" != "success" ]; then
+              failed=1
+            fi
+          done
+          if [ "$failed" -eq 1 ]; then
+            echo "::error::Quality gate FAILED - one or more checks did not pass"
+            exit 1
+          fi
+          echo "All quality gates passed"
