@@ -4,6 +4,10 @@ Distributed issue tracking using Git's native data model.
 
 **Command:** `git issue` (simple to use, despite the project name)
 
+<p align="center">
+  <img src="demo/demo.gif" alt="git-native-issue demo" width="600">
+</p>
+
 ## The Problem
 
 Your source code travels with `git clone`. Your issues don't.
