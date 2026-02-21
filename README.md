@@ -1,5 +1,9 @@
 # git-native-issue
 
+[![CI](https://github.com/remenoscodes/git-native-issue/actions/workflows/ci.yml/badge.svg)](https://github.com/remenoscodes/git-native-issue/actions/workflows/ci.yml)
+[![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
+[![Version](https://img.shields.io/badge/version-1.3.3-green.svg)](https://github.com/remenoscodes/git-native-issue/releases)
+
 Distributed issue tracking using Git's native data model.
 
 **Command:** `git issue` (simple to use, despite the project name)
@@ -7,6 +11,21 @@ Distributed issue tracking using Git's native data model.
 <p align="center">
   <img src="demo/demo.gif" alt="git-native-issue demo" width="600">
 </p>
+
+## Table of Contents
+
+- [The Problem](#the-problem)
+- [The Solution: Issues Are Just Git](#the-solution-issues-are-just-git)
+- [Installation](#installation)
+- [Commands](#commands)
+- [Platform Bridges](#platform-bridges) (GitHub, GitLab, Gitea, Forgejo)
+- [AI Agent Workflows](#ai-agent-workflows)
+- [Distributed Merge](#distributed-merge)
+- [How It Works: The Data Model](#how-it-works-the-data-model)
+- [The Format Spec](#the-format-spec)
+- [Design Decisions](#design-decisions-following-gits-philosophy)
+- [Prior Art](#prior-art)
+- [Running Tests](#running-tests)
 
 ## The Problem
 
@@ -59,9 +78,12 @@ $ git issue state a7f3b2c --close --fixed-by abc123
 Closed issue a7f3b2c
 ```
 
-Push issues to any remote. Fetch them back. They travel with the code:
+Sync issues with any platform, or push/fetch raw refs:
 
 ```
+$ git issue sync github:owner/repo
+
+# Or use raw Git refs
 $ git push origin 'refs/issues/*'
 $ git fetch origin 'refs/issues/*:refs/issues/*'
 ```
@@ -137,12 +159,6 @@ make install          # System-wide (/usr/local)
 make install prefix=~ # User install (~/bin)
 ```
 
-### Arch Linux (AUR)
-
-```bash
-yay -S git-native-issue      # Coming soon
-```
-
 ### Verify Installation
 
 ```bash
@@ -160,8 +176,8 @@ git issue version
 | `git issue comment <id>` | Add a comment |
 | `git issue edit <id>` | Edit metadata (labels, assignee, priority, milestone) |
 | `git issue state <id>` | Change issue state |
-| `git issue import` | Import issues from GitHub |
-| `git issue export` | Export issues to GitHub |
+| `git issue import` | Import issues from a platform (GitHub, GitLab, Gitea, Forgejo) |
+| `git issue export` | Export issues to a platform |
 | `git issue sync` | Two-way sync (import + export) |
 | `git issue search <pattern>` | Search issues by text |
 | `git issue merge <remote>` | Merge issues from a remote |
@@ -269,7 +285,7 @@ git issue import gitlab:company/product \
 # Preview what would be imported
 git issue import gitlab:group/project --dry-run
 
-# Export to GitLab (coming in v1.2.0)
+# Export to GitLab
 git issue export gitlab:group/project
 
 # Two-way sync
@@ -377,8 +393,9 @@ git issue state abc --close -m "False positive"
 - ✅ Searchable (`git issue search "race condition"`)
 
 **Agents that work well with git-issue:**
-- GitHub Copilot Workspace (via git integration)
+- Claude Code (via CLAUDE.md integration)
 - Cursor (via terminal)
+- GitHub Copilot Workspace (via git integration)
 - Custom agents (via git plumbing commands)
 
 ### Distributed Merge
@@ -546,11 +563,11 @@ people change them offline, there's no "correct" merge -- just pick the
 most recent by timestamp. Simple, deterministic, and matches user
 expectations.
 
-### Import/export bridges (not live sync)
+### Batch sync bridges (not real-time webhooks)
 GitHub and GitLab won't adopt `refs/issues/*` overnight. Bridges allow
-migration and interop without solving real-time two-way sync (which
-requires webhooks, conflict resolution UI, and operational complexity).
-Start with batch import/export. Live sync is a v2 problem.
+migration and interop via `git issue sync` without requiring webhooks,
+conflict resolution UI, or operational complexity. Real-time sync is a
+v2 problem.
 
 ### Zero dependencies on working tree
 Issues live in `refs/`, not the working tree. This means:
