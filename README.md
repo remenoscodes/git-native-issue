@@ -20,6 +20,7 @@ Distributed issue tracking using Git's native data model.
 - [Commands](#commands)
 - [Platform Bridges](#platform-bridges) (GitHub, GitLab, Gitea, Forgejo)
 - [AI Agent Workflows](#ai-agent-workflows)
+- [Editor & TUI Integrations](#editor--tui-integrations) (lazygit, VS Code, Vim)
 - [Distributed Merge](#distributed-merge)
 - [How It Works: The Data Model](#how-it-works-the-data-model)
 - [The Format Spec](#the-format-spec)
@@ -397,6 +398,15 @@ git issue state abc --close -m "False positive"
 - Cursor (via terminal)
 - GitHub Copilot Workspace (via git integration)
 - Custom agents (via git plumbing commands)
+
+### Editor & TUI Integrations
+
+git-native-issue works with any tool that can run shell commands. Dedicated integrations:
+
+- **[lazygit](docs/lazygit.md)** — Custom commands for browsing, creating, and closing issues inside lazygit's TUI
+- **Claude Code** — Via CLAUDE.md integration or the [claude-git-native-issue plugin](https://github.com/remenoscodes/claude-git-native-issue)
+- **Vim/Neovim** — `:!git issue ls`, or use fugitive's `:Gedit refs/issues/<id>`
+- **VS Code** — Via integrated terminal, or any extension that reads Git refs
 
 ### Distributed Merge
 
