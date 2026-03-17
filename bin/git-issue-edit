@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-edit - Edit metadata of an existing issue
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 
@@ -213,8 +214,8 @@ issue_head="$(git rev-parse "$issue_ref")"
 if test -n "$add_labels" || test -n "$remove_labels"
 then
 	# Get current labels
-	current_labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$issue_ref" | \
-		sed '/^$/d' | head -1)"
+	current_labels="$(git log -1 --format='%(trailers:key=Labels,valueonly)' "$issue_ref" | \
+		sed '/^$/d')"
 	current_labels="$(printf '%s' "$current_labels" | sed 's/^[[:space:]]*//')"
 
 	final_labels="$current_labels"

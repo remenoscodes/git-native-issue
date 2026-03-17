@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-import-gitea - Import issues from Gitea/Forgejo
 #
@@ -7,6 +7,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -421,8 +422,8 @@ do
 
 			# Resolve comment author to name and email via API (also populates cache)
 			_comment_info="$(resolve_gitea_user "$comment_author_username")"
-			comment_author_name="$(printf '%s' "$_comment_info" | head -1)"
-			comment_email="$(printf '%s' "$_comment_info" | tail -1)"
+			comment_author_name="$(printf '%s\n' "${_comment_info%%$'\n'*}")"
+			comment_email="$(set +o pipefail; printf '%s' "$_comment_info" | tail -1)"
 
 			if test "$dry_run" -eq 1
 			then
@@ -474,8 +475,8 @@ do
 
 	# Resolve author to name and email via API (also populates cache)
 	_author_info="$(resolve_gitea_user "$author_username")"
-	author_name="$(printf '%s' "$_author_info" | head -1)"
-	author_email="$(printf '%s' "$_author_info" | tail -1)"
+	author_name="$(printf '%s\n' "${_author_info%%$'\n'*}")"
+	author_email="$(set +o pipefail; printf '%s' "$_author_info" | tail -1)"
 
 	# Map state to our format
 	case "$state" in
@@ -493,7 +494,7 @@ do
 	if test -n "$assignee_login"
 	then
 		_assignee_info="$(resolve_gitea_user "$assignee_login")"
-		assignee_email="$(printf '%s' "$_assignee_info" | tail -1)"
+		assignee_email="$(set +o pipefail; printf '%s' "$_assignee_info" | tail -1)"
 	fi
 
 	if test "$dry_run" -eq 1

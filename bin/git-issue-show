@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-show - Show issue details and comments
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 
@@ -84,7 +85,7 @@ then
 		n_k=$((n_d - n_t - 1))
 		if test "$n_k" -gt 0
 		then
-			description="$(printf '%s\n' "$raw_desc" | head -n "$n_k")"
+			description="$(set +o pipefail; printf '%s\n' "$raw_desc" | head -n "$n_k")"
 		fi
 	else
 		description="$raw_desc"
@@ -92,19 +93,19 @@ then
 fi
 
 # Get current state
-state="$(git log --format='%(trailers:key=State,valueonly)' "$issue_ref" | \
+state="$(set +o pipefail; git log --format='%(trailers:key=State,valueonly)' "$issue_ref" | \
 	sed '/^$/d' | head -1)"
 test -n "$state" || state="open"
 state="$(printf '%s' "$state" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 
 # Get other metadata from most recent trailers
-labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$issue_ref" | \
+labels="$(set +o pipefail; git log --format='%(trailers:key=Labels,valueonly)' "$issue_ref" | \
 	sed '/^$/d' | head -1)"
-assignee="$(git log --format='%(trailers:key=Assignee,valueonly)' "$issue_ref" | \
+assignee="$(set +o pipefail; git log --format='%(trailers:key=Assignee,valueonly)' "$issue_ref" | \
 	head -1)"
-priority="$(git log --format='%(trailers:key=Priority,valueonly)' "$issue_ref" | \
+priority="$(set +o pipefail; git log --format='%(trailers:key=Priority,valueonly)' "$issue_ref" | \
 	head -1)"
-milestone="$(git log --format='%(trailers:key=Milestone,valueonly)' "$issue_ref" | \
+milestone="$(set +o pipefail; git log --format='%(trailers:key=Milestone,valueonly)' "$issue_ref" | \
 	head -1)"
 
 # Get author and date
@@ -160,7 +161,7 @@ then
 		c_subject="$(git log -1 --format='%s' "$commit")"
 		c_body="$(git log -1 --format='%b' "$commit")"
 		c_state="$(git log -1 --format='%(trailers:key=State,valueonly)' "$commit" | \
-			sed '/^$/d' | head -1)"
+			sed '/^$/d')"
 
 		printf '\n  %s (%s):\n' "$c_author" "$c_date"
 
@@ -183,7 +184,7 @@ then
 				c_nk=$((c_nd - c_nt - 1))
 				if test "$c_nk" -gt 0
 				then
-					printf '%s\n' "$c_body" | head -n "$c_nk" | sed '/^$/d' | sed 's/^/  /'
+					(set +o pipefail; printf '%s\n' "$c_body" | head -n "$c_nk") | sed '/^$/d' | sed 's/^/  /'
 				fi
 			else
 				printf '%s\n' "$c_body" | sed '/^$/d' | sed 's/^/  /'

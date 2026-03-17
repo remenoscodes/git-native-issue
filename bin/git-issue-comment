@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-comment - Add a comment to an issue
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 

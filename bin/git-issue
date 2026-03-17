@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue - Distributed issue tracking embedded in Git
 #
@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 VERSION="1.3.3"
 

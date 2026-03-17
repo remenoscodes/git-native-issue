@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-sync - Two-way sync with an external provider (import + export)
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF

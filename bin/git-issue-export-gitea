@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-export-gitea - Export issues to Gitea/Forgejo
 #
@@ -7,6 +7,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -358,7 +359,7 @@ do
 			n_keep=$((n_body - n_trailers - 1))
 			if test "$n_keep" -gt 0
 			then
-				body="$(printf '%s\n' "$raw_body" | head -n "$n_keep")"
+				body="$(set +o pipefail; printf '%s\n' "$raw_body" | head -n "$n_keep")"
 			fi
 		else
 			body="$raw_body"
@@ -366,16 +367,16 @@ do
 	fi
 
 	# Get current state
-	state="$(git log --format='%(trailers:key=State,valueonly)' "$ref" | sed '/^$/d' | head -1)"
+	state="$(git log -1 --format='%(trailers:key=State,valueonly)' "$ref" | sed '/^$/d')"
 	state="$(printf '%s' "$state" | sed 's/^[[:space:]]*//')"
 
 	# Get labels
-	labels="$(git log --format='%(trailers:key=Labels,valueonly)' "$ref" | sed '/^$/d' | head -1)"
+	labels="$(git log -1 --format='%(trailers:key=Labels,valueonly)' "$ref" | sed '/^$/d')"
 	labels="$(printf '%s' "$labels" | sed 's/^[[:space:]]*//')"
 
 	# Get assignee (canonical email)
 	# Use full trailer format to distinguish "no trailer" from "empty value"
-	_assignee_line="$(git log --format='%(trailers:key=Assignee)' "$ref" | sed '/^$/d' | head -1)"
+	_assignee_line="$(git log -1 --format='%(trailers:key=Assignee)' "$ref" | sed '/^$/d')"
 	has_assignee=0
 	assignee_email=""
 	if test -n "$_assignee_line"
@@ -386,7 +387,7 @@ do
 
 	# Check for Provider-ID in commit chain
 	existing_pid=""
-	existing_pid="$(git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+	existing_pid="$(set +o pipefail; git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
 		sed '/^$/d' | sed 's/^[[:space:]]*//' | head -1)"
 
 	if test -n "$existing_pid"
@@ -458,7 +459,7 @@ do
 							n_keep=$((n_body - n_trailers - 1))
 							if test "$n_keep" -gt 0
 							then
-								cmt_body="$(printf '%s\n' "$cmt_body_full" | head -n "$n_keep")"
+								cmt_body="$(set +o pipefail; printf '%s\n' "$cmt_body_full" | head -n "$n_keep")"
 							fi
 						else
 							cmt_body="$cmt_body_full"

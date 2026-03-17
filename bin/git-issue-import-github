@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-import-github - Import issues from GitHub
 #
@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -272,11 +273,11 @@ do
 			comment_login="$(printf '%s' "$comments_json" | jq -r ".[$i].user.login")"
 
 			comment_info="$(resolve_user "$comment_login")"
-			comment_name="$(printf '%s' "$comment_info" | head -1)"
-			comment_email="$(printf '%s' "$comment_info" | tail -1)"
+			comment_name="$(printf '%s\n' "${comment_info%%$'\n'*}")"
+			comment_email="$(set +o pipefail; printf '%s' "$comment_info" | tail -1)"
 
 			# Split comment into subject and body
-			first_line="$(printf '%s\n' "$comment_body" | head -1)"
+			first_line="$(printf '%s\n' "${comment_body%%$'\n'*}")"
 			remaining="$(printf '%s\n' "$comment_body" | tail -n +2)"
 
 			if test ${#first_line} -gt 72
@@ -356,8 +357,8 @@ do
 
 	# Resolve author
 	author_info="$(resolve_user "$author_login")"
-	author_name="$(printf '%s' "$author_info" | head -1)"
-	author_email="$(printf '%s' "$author_info" | tail -1)"
+	author_name="$(printf '%s\n' "${author_info%%$'\n'*}")"
+	author_email="$(set +o pipefail; printf '%s' "$author_info" | tail -1)"
 
 	# Generate UUID
 	if command -v uuidgen >/dev/null 2>&1
@@ -395,7 +396,7 @@ $body"
 	if test -n "$assignee_login"
 	then
 		assignee_info="$(resolve_user "$assignee_login")"
-		assignee_email="$(printf '%s' "$assignee_info" | tail -1)"
+		assignee_email="$(set +o pipefail; printf '%s' "$assignee_info" | tail -1)"
 		git interpret-trailers --in-place --trailer "Assignee: $assignee_email" "$tmpfile"
 	fi
 
@@ -430,11 +431,11 @@ $body"
 		comment_login="$(printf '%s' "$comments_json" | jq -r ".[$i].user.login")"
 
 		comment_info="$(resolve_user "$comment_login")"
-		comment_name="$(printf '%s' "$comment_info" | head -1)"
-		comment_email="$(printf '%s' "$comment_info" | tail -1)"
+		comment_name="$(printf '%s\n' "${comment_info%%$'\n'*}")"
+		comment_email="$(set +o pipefail; printf '%s' "$comment_info" | tail -1)"
 
 		# Split comment into subject (max 72 chars) and body
-		first_line="$(printf '%s\n' "$comment_body" | head -1)"
+		first_line="$(printf '%s\n' "${comment_body%%$'\n'*}")"
 		remaining="$(printf '%s\n' "$comment_body" | tail -n +2)"
 
 		if test ${#first_line} -gt 72

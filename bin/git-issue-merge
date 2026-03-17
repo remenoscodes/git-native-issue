@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-merge - Merge issues from a remote
 #
 
 set -e
+set -o pipefail
 
 . "$(dirname "$0")/git-issue-lib"
 
@@ -145,7 +146,7 @@ resolve_scalar() {
 		printf '%s' "$_local_val"
 	else
 		# Tiebreaker: lexicographically greater SHA wins (POSIX-portable)
-		_winner="$(printf '%s\n%s\n' "$local_head" "$remote_head" | sort | tail -1)"
+		_winner="$(set +o pipefail; printf '%s\n%s\n' "$local_head" "$remote_head" | sort | tail -1)"
 		if test "$_winner" = "$local_head"
 		then
 			printf '%s' "$_local_val"

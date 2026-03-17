@@ -1,9 +1,10 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-init - Configure the current repo for issue tracking
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -97,7 +98,7 @@ Usage:
   git issue init <remote-name>
 
 Example:
-  git issue init $(printf '%s' "$all_remotes" | head -1)
+  git issue init $(printf '%s\n' "${all_remotes%%$'\n'*}")
 EOF
 		exit 1
 	fi

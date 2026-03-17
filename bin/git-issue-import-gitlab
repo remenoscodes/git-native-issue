@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 #
 # git-issue-import-gitlab - Import issues from GitLab
 #
@@ -6,6 +6,7 @@
 #
 
 set -e
+set -o pipefail
 
 usage() {
 	cat <<EOF
@@ -305,8 +306,8 @@ do
 
 			# Resolve comment author via GitLab API + cache
 			_comment_user_info="$(resolve_gitlab_user "$comment_author_username")"
-			comment_author_name="$(printf '%s' "$_comment_user_info" | head -1)"
-			comment_email="$(printf '%s' "$_comment_user_info" | tail -1)"
+			comment_author_name="$(printf '%s\n' "${_comment_user_info%%$'\n'*}")"
+			comment_email="$(set +o pipefail; printf '%s' "$_comment_user_info" | tail -1)"
 
 			if test "$dry_run" -eq 1
 			then
@@ -358,8 +359,8 @@ do
 
 	# Resolve issue author via GitLab API + cache
 	_author_info="$(resolve_gitlab_user "$author_username")"
-	author_name="$(printf '%s' "$_author_info" | head -1)"
-	author_email="$(printf '%s' "$_author_info" | tail -1)"
+	author_name="$(printf '%s\n' "${_author_info%%$'\n'*}")"
+	author_email="$(set +o pipefail; printf '%s' "$_author_info" | tail -1)"
 
 	# Map GitLab state to our format
 	case "$state" in
@@ -377,7 +378,7 @@ do
 	if test -n "$assignee_username"
 	then
 		_assignee_info="$(resolve_gitlab_user "$assignee_username")"
-		assignees="$(printf '%s' "$_assignee_info" | tail -1)"
+		assignees="$(set +o pipefail; printf '%s' "$_assignee_info" | tail -1)"
 	fi
 
 	if test "$dry_run" -eq 1
