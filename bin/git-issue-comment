@@ -12,7 +12,7 @@ usage() {
 usage: git issue comment <issue-id> -m <message>
 
 Options:
-   -m, --message <text>   Comment text (required)
+   -m, --message <text>   Comment text; use multiple times for paragraphs
    -h, --help             Show this help
 EOF
 	exit 1
@@ -42,7 +42,12 @@ do
 	case "$1" in
 		-m|--message)
 			test $# -ge 2 || { echo "error: -m requires a value" >&2; exit 1; }
-			message="$2"
+			if test -n "$message"
+			then
+				message="$(printf '%s\n\n%s' "$message" "$2")"
+			else
+				message="$2"
+			fi
 			shift 2
 			;;
 		-h|--help)

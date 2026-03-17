@@ -15,7 +15,7 @@ Platform bridges: `gh` (GitHub), `glab` (GitLab), REST API (Gitea/Forgejo).
 
 ## Key Commands
 ```bash
-make test                           # Run all 282 tests
+make test                           # Run all 284 tests
 make install                        # Install system-wide (/usr/local)
 git issue create "title" -l bug     # Create issue with label
 git issue ls --format full          # List issues with metadata
