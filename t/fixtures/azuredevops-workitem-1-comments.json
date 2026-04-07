@@ -1,0 +1,26 @@
+{
+  "totalCount": 2,
+  "count": 2,
+  "comments": [
+    {
+      "id": 1001,
+      "text": "Reviewed the migration plan. Looks good to proceed.",
+      "createdDate": "2025-04-01T12:00:00Z",
+      "createdBy": {
+        "displayName": "Bob Reporter",
+        "uniqueName": "bob@example.com",
+        "id": "def-456"
+      }
+    },
+    {
+      "id": 1002,
+      "text": "Updated the timeline. Targeting Q2 completion.",
+      "createdDate": "2025-04-02T09:30:00Z",
+      "createdBy": {
+        "displayName": "Alice Developer",
+        "uniqueName": "alice@example.com",
+        "id": "abc-123"
+      }
+    }
+  ]
+}

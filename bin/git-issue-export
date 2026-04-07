@@ -10,10 +10,11 @@ usage() {
 usage: git issue export <provider> [options]
 
 Supported providers:
-   github:<owner>/<repo>        GitHub repository
-   gitlab:<group>/<project>     GitLab project
-   gitea:<owner>/<repo>         Gitea repository
-   forgejo:<owner>/<repo>       Forgejo repository
+   github:<owner>/<repo>           GitHub repository
+   gitlab:<group>/<project>        GitLab project
+   gitea:<owner>/<repo>            Gitea repository
+   forgejo:<owner>/<repo>          Forgejo repository
+   azuredevops:<org>/<project>     Azure DevOps Boards
 
 Options vary by provider. Use 'git issue export <provider> --help' for provider-specific options.
 
@@ -73,9 +74,14 @@ case "$provider" in
 	forgejo:*/*)
 		exec "$ISSUE_BIN_DIR/git-issue-export-gitea" "$@"
 		;;
+	azuredevops:*/*)
+		echo "error: Azure DevOps export is not yet implemented" >&2
+		echo "       use --cross-platform flag with another provider to export ADO-imported items" >&2
+		exit 1
+		;;
 	*)
 		echo "error: unsupported or invalid provider '$provider'" >&2
-		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>, azuredevops:<org>/<project>" >&2
 		exit 1
 		;;
 esac
