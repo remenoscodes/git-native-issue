@@ -12,6 +12,7 @@ usage() {
 usage: git issue export github:<owner>/<repo> [options]
 
 Options:
+   --cross-platform  Export issues imported from other providers (e.g., Azure DevOps)
    --dry-run         Show what would be exported without exporting
    -h, --help        Show this help
 
@@ -24,10 +25,15 @@ EOF
 
 provider=""
 dry_run=0
+cross_platform=0
 
 while test $# -gt 0
 do
 	case "$1" in
+		--cross-platform)
+			cross_platform=1
+			shift
+			;;
 		--dry-run)
 			dry_run=1
 			shift
@@ -448,10 +454,14 @@ $cmt_body"
 				continue
 				;;
 			*)
-				# Foreign Provider-ID (imported from a different repo), skip
-				skipped=$((skipped + 1))
-				printf 'Skipped %s (imported from %s)\n' "$short_id" "$existing_pid"
-				continue
+				if test "$cross_platform" -eq 0
+				then
+					# Foreign Provider-ID — skip (default behavior)
+					skipped=$((skipped + 1))
+					printf 'Skipped %s (imported from %s)\n' "$short_id" "$existing_pid"
+					continue
+				fi
+				# --cross-platform: fall through to export as new issue
 				;;
 		esac
 	fi

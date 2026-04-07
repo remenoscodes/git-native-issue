@@ -1,0 +1,30 @@
+{
+  "id": 2,
+  "rev": 1,
+  "fields": {
+    "System.Id": 2,
+    "System.Title": "Login page crashes on special characters",
+    "System.Description": "<div>Steps to reproduce:<br>1. Enter &lt;script&gt; in login<br>2. Page crashes</div>",
+    "System.State": "New",
+    "System.WorkItemType": "Bug",
+    "System.CreatedDate": "2025-03-15T14:00:00Z",
+    "System.CreatedBy": {
+      "displayName": "Bob Reporter",
+      "uniqueName": "bob@example.com",
+      "id": "def-456"
+    },
+    "System.AssignedTo": null,
+    "System.Tags": "",
+    "System.AreaPath": "TestProject",
+    "System.IterationPath": "TestProject",
+    "System.Parent": 1
+  },
+  "relations": [
+    {
+      "rel": "System.LinkTypes.Hierarchy-Reverse",
+      "url": "https://dev.azure.com/testorg/_apis/wit/workItems/1",
+      "attributes": {"isLocked": false, "name": "Parent"}
+    }
+  ],
+  "_links": {}
+}

@@ -373,7 +373,8 @@ merge-trailers    = *( trailer )
 trailer          = trailer-key ": " trailer-value CRLF
 trailer-key      = "Labels" / "Assignee" / "Priority" / "Milestone" /
                    "Fixed-By" / "Release" / "Reason" / "Provider-ID" /
-                   "Title" / custom-trailer-key
+                   "Provider-Comment-ID" / "Parent-ID" / "Title" /
+                   custom-trailer-key
 custom-trailer-key = "X-" TEXT-NO-LF
 trailer-value    = TEXT-NO-LF  ; must not contain actual LF
 
@@ -820,6 +821,22 @@ Export creates provider issues from local `refs/issues/` data:
 2. Comment export: commits without trailers are treated as comments;
    commits with trailers are metadata changes (skipped)
 
+#### Cross-Platform Export
+
+When the `--cross-platform` flag is passed, export implementations
+MUST NOT skip issues with foreign `Provider-ID:` values. Instead,
+they fall through to the new-issue creation path. After the first
+cross-platform export, the issue gains a target `Provider-ID:` (e.g.,
+`github:owner/repo#42`), and subsequent exports enter normal sync mode.
+
+This enables importing from one provider (e.g., Azure DevOps) and
+exporting to another (e.g., GitHub):
+
+```
+git issue import azuredevops:org/project --state all
+git issue export github:owner/repo --cross-platform
+```
+
 ### 8.3 Round-Trip Safety
 
 The `Provider-ID:` trailer ensures:
@@ -849,10 +866,43 @@ Provider-ID: github:owner/repo#42
 
 Format: `<provider>:<identifier>`
 
-This enables:
+### 9.1 Supported Providers
+
+| Provider     | Format                                  | Example                                  |
+|--------------|-----------------------------------------|------------------------------------------|
+| GitHub       | `github:<owner>/<repo>#<number>`        | `github:myorg/myrepo#42`                 |
+| GitLab       | `gitlab:<group>/<project>#<number>`     | `gitlab:team/app#17`                     |
+| Gitea        | `gitea:<owner>/<repo>#<number>`         | `gitea:dev/api#5`                        |
+| Forgejo      | `forgejo:<owner>/<repo>#<number>`       | `forgejo:forge/core#12`                  |
+| Azure DevOps | `azuredevops:<org>/<project>#<id>`      | `azuredevops:contoso/MyProject#1234`     |
+
+Comments use `Provider-Comment-ID:` with a `#comment-<id>` suffix:
+
+```
+Provider-Comment-ID: github:owner/repo#comment-123456
+Provider-Comment-ID: azuredevops:org/project#comment-789
+```
+
+### 9.2 Parent-ID Trailer
+
+For providers with hierarchical work items (e.g., Azure DevOps Epics,
+Features, User Stories, Tasks), the `Parent-ID:` trailer records the
+parent relationship:
+
+```
+Parent-ID: azuredevops:org/project#42
+```
+
+This preserves the hierarchy from the source provider. Implementations
+MAY use this trailer to reconstruct parent-child relationships.
+
+### 9.3 Identity
+
+Provider-ID enables:
 - Round-trip import/export without duplication
 - Cross-reference between local and remote issue IDs
 - Detecting already-imported issues during subsequent imports
+- Cross-platform export (see Section 8.2)
 
 ---
 

@@ -14,6 +14,7 @@ usage: git issue export gitea:<owner>/<repo> [options]
        git issue export forgejo:<owner>/<repo> [options]
 
 Options:
+   --cross-platform  Export issues imported from other providers (e.g., Azure DevOps)
    --url <url>       Instance URL (default: https://gitea.com for gitea, https://codeberg.org for forgejo)
    --token <token>   API token (or use GITEA_TOKEN/FORGEJO_TOKEN env var)
    --dry-run         Show what would be exported without exporting
@@ -30,6 +31,7 @@ EOF
 
 provider=""
 dry_run=0
+cross_platform=0
 api_url=""
 api_token=""
 platform=""
@@ -37,6 +39,10 @@ platform=""
 while test $# -gt 0
 do
 	case "$1" in
+		--cross-platform)
+			cross_platform=1
+			shift
+			;;
 		--url)
 			test $# -ge 2 || { echo "error: --url requires a value" >&2; exit 1; }
 			api_url="$2"
@@ -561,10 +567,14 @@ $cmt_body"
 				continue
 				;;
 			*)
-				# Foreign Provider-ID (from different source)
-				skipped=$((skipped + 1))
-				printf 'Skipped %s (imported from %s)\n' "$short_id" "$existing_pid"
-				continue
+				if test "$cross_platform" -eq 0
+				then
+					# Foreign Provider-ID — skip (default behavior)
+					skipped=$((skipped + 1))
+					printf 'Skipped %s (imported from %s)\n' "$short_id" "$existing_pid"
+					continue
+				fi
+				# --cross-platform: fall through to export as new issue
 				;;
 		esac
 	fi

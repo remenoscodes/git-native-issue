@@ -1,0 +1,547 @@
+#!/bin/sh
+#
+# git-issue-import-azuredevops - Import work items from Azure DevOps Boards
+#
+# Usage: git issue import azuredevops:<org>/<project> [options]
+#
+
+set -e
+
+usage() {
+	cat <<EOF
+usage: git issue import azuredevops:<org>/<project> [options]
+
+Options:
+   --state <state>   Filter by state: open, closed, all (default: open)
+   --types <types>   Comma-separated work item types (default: Epic,Feature,User Story,Task,Bug)
+   --dry-run         Show what would be imported without importing
+   -h, --help        Show this help
+
+Authentication:
+   Requires Azure CLI (az) with the azure-devops extension.
+   Run 'az login' and ensure the azure-devops extension is installed:
+   az extension add --name azure-devops
+EOF
+	exit 1
+}
+
+provider=""
+state_filter="open"
+dry_run=0
+item_types="Epic,Feature,User Story,Task,Bug"
+
+while test $# -gt 0
+do
+	case "$1" in
+		--state)
+			test $# -ge 2 || { echo "error: --state requires a value" >&2; exit 1; }
+			case "$2" in
+				open|closed|all) ;;
+				*) echo "error: --state must be open, closed, or all" >&2; exit 1 ;;
+			esac
+			state_filter="$2"
+			shift 2
+			;;
+		--types)
+			test $# -ge 2 || { echo "error: --types requires a value" >&2; exit 1; }
+			item_types="$2"
+			shift 2
+			;;
+		--dry-run)
+			dry_run=1
+			shift
+			;;
+		-h|--help)
+			usage
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			echo "error: unknown option '$1'" >&2
+			usage
+			;;
+		*)
+			if test -z "$provider"
+			then
+				provider="$1"
+			fi
+			shift
+			;;
+	esac
+done
+
+if test -z "$provider"
+then
+	echo "error: provider is required (e.g., azuredevops:org/project)" >&2
+	usage
+fi
+
+# Parse provider string
+case "$provider" in
+	azuredevops:*/*)
+		ado_path="${provider#azuredevops:}"
+		ado_org="${ado_path%/*}"
+		ado_project="${ado_path#*/}"
+		;;
+	*)
+		echo "error: invalid provider string '$provider'" >&2
+		echo "       expected format: azuredevops:<org>/<project>" >&2
+		exit 1
+		;;
+esac
+
+# Verify we are inside a git repository
+git rev-parse --git-dir >/dev/null 2>&1 || {
+	echo "fatal: not a git repository" >&2
+	exit 128
+}
+
+# Source shared library
+. "$(dirname "$0")/git-issue-lib"
+
+# Check prerequisites
+command -v az >/dev/null 2>&1 || {
+	echo "error: 'az' (Azure CLI) is required but not found" >&2
+	echo "       install: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli" >&2
+	exit 1
+}
+
+command -v jq >/dev/null 2>&1 || {
+	echo "error: 'jq' is required but not found" >&2
+	echo "       install: https://stedolan.github.io/jq/" >&2
+	exit 1
+}
+
+# Check az auth
+az account show >/dev/null 2>&1 || {
+	echo "error: 'az' is not authenticated. Run 'az login' first." >&2
+	exit 1
+}
+
+# Check azure-devops extension
+az extension show --name azure-devops >/dev/null 2>&1 || {
+	echo "error: azure-devops extension required. Install with:" >&2
+	echo "       az extension add --name azure-devops" >&2
+	exit 1
+}
+
+ado_org_url="https://dev.azure.com/$ado_org"
+
+# Build Provider-ID index from existing issues
+_import_tmpdir="$(mktemp -d)"
+trap 'rm -rf "$_import_tmpdir"' EXIT
+provider_index="$_import_tmpdir/provider-index"
+
+git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+do
+	git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//' | while IFS= read -r pid
+	do
+		test -n "$pid" && printf '%s\n' "$pid"
+	done
+done > "$provider_index"
+
+# Build WIQL state filter
+case "$state_filter" in
+	open)
+		wiql_state="AND [System.State] NOT IN ('Done','Resolved','Closed','Removed')"
+		;;
+	closed)
+		wiql_state="AND [System.State] IN ('Done','Resolved','Closed')"
+		;;
+	all)
+		wiql_state=""
+		;;
+esac
+
+# Build WIQL type filter from comma-separated types
+wiql_types="$(printf '%s' "$item_types" | sed "s/,/','/g" | sed "s/^/'/" | sed "s/$/'/")"
+
+wiql_query="SELECT [System.Id] FROM workitems WHERE [System.TeamProject] = '$ado_project' AND [System.WorkItemType] IN ($wiql_types) $wiql_state ORDER BY [System.Id] ASC"
+
+# Run WIQL query via az boards
+printf 'Querying work items from %s/%s...\n' "$ado_org" "$ado_project" >&2
+
+wiql_response="$(az boards query \
+	--wiql "$wiql_query" \
+	--org "$ado_org_url" \
+	--project "$ado_project" \
+	--output json 2>&1)" || {
+	echo "error: WIQL query failed" >&2
+	echo "       $wiql_response" >&2
+	exit 1
+}
+
+# Extract work item IDs
+# az boards query returns WIQL response with workItems array
+item_count="$(printf '%s' "$wiql_response" | jq '.workItems | length')"
+
+# Validate item_count
+case "$item_count" in
+	''|*[!0-9]*)
+		echo "error: invalid item count: '$item_count'" >&2
+		exit 1
+		;;
+esac
+
+printf 'Found %d work items\n' "$item_count" >&2
+
+if test "$item_count" -eq 0
+then
+	echo "No work items to import"
+	exit 0
+fi
+
+imported=0
+skipped=0
+updated=0
+
+# Get the empty tree SHA
+empty_tree="$(git hash-object -t tree /dev/null)"
+
+# Helper: find ref for a Provider-ID
+find_ref_for_provider_id() {
+	target_id="$1"
+	git for-each-ref --format='%(refname)' refs/issues/ | while IFS= read -r ref
+	do
+		if git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | \
+			sed '/^$/d' | sed 's/^[[:space:]]*//' | grep -qxF "$target_id"
+		then
+			printf '%s\n' "$ref"
+			return 0
+		fi
+	done
+}
+
+# Helper: get imported comment IDs for an issue
+get_imported_comment_ids() {
+	ref="$1"
+	git log --format='%(trailers:key=Provider-Comment-ID,valueonly)' "$ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//'
+}
+
+# Helper: map ADO work item type to label
+map_work_item_type() {
+	case "$1" in
+		"Epic")              printf 'type:epic' ;;
+		"Feature")           printf 'type:feature' ;;
+		"User Story")        printf 'type:user-story' ;;
+		"Product Backlog Item") printf 'type:pbi' ;;
+		"Task")              printf 'type:task' ;;
+		"Bug")               printf 'type:bug' ;;
+		*)                   printf 'type:%s' "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')" ;;
+	esac
+}
+
+# Helper: map ADO state to open/closed
+map_ado_state() {
+	case "$1" in
+		"Active"|"New"|"Open"|"In Progress"|"To Do"|"Committed"|"Doing"|"Approved"|"Design")
+			printf 'open'
+			;;
+		"Done"|"Resolved"|"Closed"|"Completed"|"Removed"|"Cut")
+			printf 'closed'
+			;;
+		*)
+			printf 'open'
+			;;
+	esac
+}
+
+# Helper: strip HTML tags from description
+strip_html() {
+	printf '%s' "$1" | \
+		sed 's/<br[[:space:]]*\/?>/\n/g' | \
+		sed 's/<\/div>/\n/g' | \
+		sed 's/<\/p>/\n/g' | \
+		sed 's/<\/li>/\n/g' | \
+		sed 's/<li[^>]*>/- /g' | \
+		sed 's/<[^>]*>//g' | \
+		sed 's/&lt;/</g;s/&gt;/>/g;s/&amp;/\&/g;s/&nbsp;/ /g;s/&quot;/"/g;s/&#39;/'"'"'/g' | \
+		sed 's/&#[0-9]*;//g' | \
+		sed '/^$/N;/^\n$/d'
+}
+
+# Helper: normalize ADO tags (semicolon-separated) to comma-separated labels
+normalize_ado_tags() {
+	printf '%s' "$1" | \
+		sed 's/ *; */,/g' | \
+		sed 's/^,*//;s/,*$//' | \
+		sed 's/,,*/,/g'
+}
+
+# Fetch comments for a work item using az devops invoke
+fetch_ado_comments() {
+	_fac_id="$1"
+	az devops invoke \
+		--area wit \
+		--resource comments \
+		--route-parameters workItemId="$_fac_id" \
+		--api-version 7.1-preview.4 \
+		--org "$ado_org_url" \
+		--output json 2>/dev/null || printf '{"comments":[],"count":0}\n'
+}
+
+# Process each work item
+i=0
+while test "$i" -lt "$item_count"
+do
+	work_item_id="$(printf '%s' "$wiql_response" | jq -r ".workItems[$i].id")"
+	provider_id="azuredevops:$ado_org/$ado_project#$work_item_id"
+
+	# Check if already imported
+	if grep -qF "$provider_id" "$provider_index" 2>/dev/null
+	then
+		# Issue exists - check for new comments to import
+		existing_ref="$(find_ref_for_provider_id "$provider_id")"
+
+		if test -z "$existing_ref"
+		then
+			skipped=$((skipped + 1))
+			i=$((i + 1))
+			continue
+		fi
+
+		# Fetch comments for this work item
+		comments_json="$(fetch_ado_comments "$work_item_id")"
+		comment_count="$(printf '%s' "$comments_json" | jq '.comments | length')"
+
+		if test "$comment_count" -eq 0
+		then
+			skipped=$((skipped + 1))
+			i=$((i + 1))
+			continue
+		fi
+
+		# Get list of already-imported comment IDs
+		imported_comment_ids="$(get_imported_comment_ids "$existing_ref")"
+
+		# Find new comments
+		new_comments=0
+		parent="$(git rev-parse "$existing_ref")"
+		j=0
+
+		while test "$j" -lt "$comment_count"
+		do
+			comment_id="$(printf '%s' "$comments_json" | jq -r ".comments[$j].id")"
+			comment_provider_id="azuredevops:$ado_org/$ado_project#comment-$comment_id"
+
+			# Skip if already imported
+			if echo "$imported_comment_ids" | grep -qF "$comment_provider_id"
+			then
+				j=$((j + 1))
+				continue
+			fi
+
+			comment_text="$(printf '%s' "$comments_json" | jq -r ".comments[$j].text")"
+			comment_author_name="$(printf '%s' "$comments_json" | jq -r ".comments[$j].createdBy.displayName // \"Unknown\"")"
+			comment_author_email="$(printf '%s' "$comments_json" | jq -r ".comments[$j].createdBy.uniqueName // \"unknown@users.noreply.azuredevops.com\"")"
+			comment_created="$(printf '%s' "$comments_json" | jq -r ".comments[$j].createdDate")"
+
+			if test "$dry_run" -eq 1
+			then
+				printf '[DRY RUN] Would import comment %s on work item #%s\n' "$comment_id" "$work_item_id"
+				j=$((j + 1))
+				continue
+			fi
+
+			# Strip HTML from comment text
+			clean_comment="$(strip_html "$comment_text")"
+
+			# Create commit for comment
+			tmpfile="$(mktemp)"
+			printf '%s\n' "$clean_comment" > "$tmpfile"
+
+			git interpret-trailers --in-place \
+				--trailer "Provider-Comment-ID: $comment_provider_id" \
+				"$tmpfile"
+
+			tree="$empty_tree"
+			commit="$(GIT_AUTHOR_NAME="$comment_author_name" \
+				GIT_AUTHOR_EMAIL="$comment_author_email" \
+				GIT_AUTHOR_DATE="$comment_created" \
+				git commit-tree "$tree" -p "$parent" -m "$(cat "$tmpfile")")"
+
+			rm -f "$tmpfile"
+			parent="$commit"
+			new_comments=$((new_comments + 1))
+			j=$((j + 1))
+		done
+
+		if test "$new_comments" -gt 0
+		then
+			git update-ref "$existing_ref" "$parent"
+			printf 'Updated %s with %d new comment(s)\n' "${existing_ref#refs/issues/}" "$new_comments"
+			updated=$((updated + 1))
+		else
+			skipped=$((skipped + 1))
+		fi
+
+		i=$((i + 1))
+		continue
+	fi
+
+	# New work item - fetch full details via az boards
+	item_json="$(az boards work-item show \
+		--id "$work_item_id" \
+		--expand all \
+		--org "$ado_org_url" \
+		--output json 2>/dev/null)" || {
+		echo "warning: failed to fetch work item #$work_item_id, skipping" >&2
+		i=$((i + 1))
+		continue
+	}
+
+	title="$(printf '%s' "$item_json" | jq -r '.fields["System.Title"]')"
+	raw_description="$(printf '%s' "$item_json" | jq -r '.fields["System.Description"] // ""')"
+	ado_state="$(printf '%s' "$item_json" | jq -r '.fields["System.State"]')"
+	work_item_type="$(printf '%s' "$item_json" | jq -r '.fields["System.WorkItemType"]')"
+	created_at="$(printf '%s' "$item_json" | jq -r '.fields["System.CreatedDate"]')"
+
+	# Author
+	author_name="$(printf '%s' "$item_json" | jq -r '.fields["System.CreatedBy"].displayName // "Unknown"')"
+	author_email="$(printf '%s' "$item_json" | jq -r '.fields["System.CreatedBy"].uniqueName // "unknown@users.noreply.azuredevops.com"')"
+
+	# Assignee (identity object, may be null)
+	assignee_email="$(printf '%s' "$item_json" | jq -r '.fields["System.AssignedTo"].uniqueName // ""')"
+
+	# Tags (semicolon-separated)
+	ado_tags="$(printf '%s' "$item_json" | jq -r '.fields["System.Tags"] // ""')"
+
+	# Parent (may be null)
+	parent_id="$(printf '%s' "$item_json" | jq -r '.fields["System.Parent"] // ""')"
+
+	# Strip HTML from description
+	body=""
+	if test -n "$raw_description"
+	then
+		body="$(strip_html "$raw_description")"
+	fi
+
+	# Map state
+	mapped_state="$(map_ado_state "$ado_state")"
+
+	# Build labels: type label + converted tags
+	type_label="$(map_work_item_type "$work_item_type")"
+	tags_as_labels="$(normalize_ado_tags "$ado_tags")"
+
+	if test -n "$tags_as_labels"
+	then
+		all_labels="$type_label, $tags_as_labels"
+	else
+		all_labels="$type_label"
+	fi
+
+	if test "$dry_run" -eq 1
+	then
+		printf '[DRY RUN] Would import work item #%s: %s (%s)\n' "$work_item_id" "$title" "$work_item_type"
+		i=$((i + 1))
+		continue
+	fi
+
+	# Generate UUID
+	if command -v uuidgen >/dev/null 2>&1
+	then
+		uuid="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+	elif test -r /proc/sys/kernel/random/uuid
+	then
+		uuid="$(cat /proc/sys/kernel/random/uuid)"
+	else
+		uuid="$(od -An -tx1 -N 16 /dev/urandom | tr -d ' \n' | sed 's/\(........\)\(....\)\(....\)\(....\)\(............\)/\1-\2-\3-\4-\5/')"
+	fi
+	ref="refs/issues/$uuid"
+
+	# Create commit message with metadata
+	tmpfile="$(mktemp)"
+	{
+		printf '%s\n\n' "$title"
+		test -n "$body" && printf '%s\n' "$body"
+	} > "$tmpfile"
+
+	# Build trailer arguments
+	trailer_args="--trailer \"Format-Version: 1\" --trailer \"Provider-ID: $provider_id\" --trailer \"State: $mapped_state\" --trailer \"Labels: $all_labels\""
+
+	# Add trailers
+	git interpret-trailers --in-place \
+		--trailer "Format-Version: 1" \
+		--trailer "Provider-ID: $provider_id" \
+		--trailer "State: $mapped_state" \
+		--trailer "Labels: $all_labels" \
+		${assignee_email:+--trailer "Assignee: $assignee_email"} \
+		${parent_id:+--trailer "Parent-ID: azuredevops:$ado_org/$ado_project#$parent_id"} \
+		"$tmpfile"
+
+	# Create the issue commit
+	tree="$empty_tree"
+	commit="$(GIT_AUTHOR_NAME="$author_name" \
+		GIT_AUTHOR_EMAIL="$author_email" \
+		GIT_AUTHOR_DATE="$created_at" \
+		git commit-tree "$tree" -m "$(cat "$tmpfile")")"
+
+	rm -f "$tmpfile"
+	parent="$commit"
+
+	# Import comments
+	comments_json="$(fetch_ado_comments "$work_item_id")"
+	comment_count="$(printf '%s' "$comments_json" | jq '.comments | length')"
+
+	j=0
+	while test "$j" -lt "$comment_count"
+	do
+		comment_id="$(printf '%s' "$comments_json" | jq -r ".comments[$j].id")"
+		comment_text="$(printf '%s' "$comments_json" | jq -r ".comments[$j].text")"
+		comment_author_name="$(printf '%s' "$comments_json" | jq -r ".comments[$j].createdBy.displayName // \"Unknown\"")"
+		comment_author_email="$(printf '%s' "$comments_json" | jq -r ".comments[$j].createdBy.uniqueName // \"unknown@users.noreply.azuredevops.com\"")"
+		comment_created="$(printf '%s' "$comments_json" | jq -r ".comments[$j].createdDate")"
+
+		comment_provider_id="azuredevops:$ado_org/$ado_project#comment-$comment_id"
+
+		# Strip HTML from comment
+		clean_comment="$(strip_html "$comment_text")"
+
+		tmpfile="$(mktemp)"
+		printf '%s\n' "$clean_comment" > "$tmpfile"
+
+		git interpret-trailers --in-place \
+			--trailer "Provider-Comment-ID: $comment_provider_id" \
+			"$tmpfile"
+
+		tree="$empty_tree"
+		commit="$(GIT_AUTHOR_NAME="$comment_author_name" \
+			GIT_AUTHOR_EMAIL="$comment_author_email" \
+			GIT_AUTHOR_DATE="$comment_created" \
+			git commit-tree "$tree" -p "$parent" -m "$(cat "$tmpfile")")"
+
+		rm -f "$tmpfile"
+		parent="$commit"
+		j=$((j + 1))
+	done
+
+	# Handle closed state
+	if test "$mapped_state" = "closed"
+	then
+		tmpfile="$(mktemp)"
+		printf 'Close issue\n' > "$tmpfile"
+		git interpret-trailers --in-place \
+			--trailer "State: closed" \
+			"$tmpfile"
+
+		commit="$(git commit-tree "$empty_tree" -p "$parent" -m "$(cat "$tmpfile")")"
+		rm -f "$tmpfile"
+		parent="$commit"
+	fi
+
+	git update-ref "$ref" "$parent"
+
+	printf 'Imported %s: %s (%s)\n' "$uuid" "$title" "$work_item_type"
+	imported=$((imported + 1))
+	i=$((i + 1))
+done
+
+# Summary
+printf '\nImport summary:\n'
+printf '  Imported: %d\n' "$imported"
+printf '  Updated:  %d\n' "$updated"
+printf '  Skipped:  %d\n' "$skipped"

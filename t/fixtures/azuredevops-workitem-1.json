@@ -1,0 +1,28 @@
+{
+  "id": 1,
+  "rev": 3,
+  "fields": {
+    "System.Id": 1,
+    "System.Title": "Platform migration initiative",
+    "System.Description": "<div>Migrate all services to new platform</div>",
+    "System.State": "Active",
+    "System.WorkItemType": "Epic",
+    "System.CreatedDate": "2025-04-01T09:00:00Z",
+    "System.CreatedBy": {
+      "displayName": "Alice Developer",
+      "uniqueName": "alice@example.com",
+      "id": "abc-123"
+    },
+    "System.AssignedTo": {
+      "displayName": "Alice Developer",
+      "uniqueName": "alice@example.com",
+      "id": "abc-123"
+    },
+    "System.Tags": "migration; platform; Q2",
+    "System.AreaPath": "TestProject\\Team A",
+    "System.IterationPath": "TestProject\\Sprint 3",
+    "System.Parent": null
+  },
+  "relations": [],
+  "_links": {}
+}

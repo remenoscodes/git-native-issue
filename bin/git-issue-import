@@ -10,10 +10,11 @@ usage() {
 usage: git issue import <provider> [options]
 
 Supported providers:
-   github:<owner>/<repo>        GitHub repository
-   gitlab:<group>/<project>     GitLab project
-   gitea:<owner>/<repo>         Gitea repository
-   forgejo:<owner>/<repo>       Forgejo repository
+   github:<owner>/<repo>           GitHub repository
+   gitlab:<group>/<project>        GitLab project
+   gitea:<owner>/<repo>            Gitea repository
+   forgejo:<owner>/<repo>          Forgejo repository
+   azuredevops:<org>/<project>     Azure DevOps Boards
 
 Options vary by provider. Use 'git issue import <provider> --help' for provider-specific options.
 
@@ -74,9 +75,12 @@ case "$provider" in
 	forgejo:*/*)
 		exec "$ISSUE_BIN_DIR/git-issue-import-gitea" "$@"
 		;;
+	azuredevops:*/*)
+		exec "$ISSUE_BIN_DIR/git-issue-import-azuredevops" "$@"
+		;;
 	*)
 		echo "error: unsupported or invalid provider '$provider'" >&2
-		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>" >&2
+		echo "       supported: github:<owner>/<repo>, gitlab:<owner>/<project>, gitea:<owner>/<repo>, forgejo:<owner>/<repo>, azuredevops:<org>/<project>" >&2
 		exit 1
 		;;
 esac

@@ -1,0 +1,34 @@
+{
+  "id": 3,
+  "rev": 5,
+  "fields": {
+    "System.Id": 3,
+    "System.Title": "Update onboarding documentation",
+    "System.Description": "",
+    "System.State": "Done",
+    "System.WorkItemType": "User Story",
+    "System.CreatedDate": "2025-02-01T08:00:00Z",
+    "System.CreatedBy": {
+      "displayName": "Charlie Writer",
+      "uniqueName": "charlie@example.com",
+      "id": "ghi-789"
+    },
+    "System.AssignedTo": {
+      "displayName": "Charlie Writer",
+      "uniqueName": "charlie@example.com",
+      "id": "ghi-789"
+    },
+    "System.Tags": "docs",
+    "System.AreaPath": "TestProject\\Team A",
+    "System.IterationPath": "TestProject\\Sprint 2",
+    "System.Parent": 1
+  },
+  "relations": [
+    {
+      "rel": "System.LinkTypes.Hierarchy-Reverse",
+      "url": "https://dev.azure.com/testorg/_apis/wit/workItems/1",
+      "attributes": {"isLocked": false, "name": "Parent"}
+    }
+  ],
+  "_links": {}
+}
