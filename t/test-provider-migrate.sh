@@ -273,6 +273,71 @@ fi
 rm -rf "$_non_git_dir"
 
 # ============================================================
+# TEST: sync warns about potential rename
+# ============================================================
+run_test
+setup_repo
+create_test_issue "Old repo issue 1" "github:owner/old-repo#1" >/dev/null
+create_test_issue "Old repo issue 2" "github:owner/old-repo#2" >/dev/null
+create_test_issue "Unrelated issue" "gitlab:other/repo#3" >/dev/null
+
+# Mock gh so import doesn't fail
+mkdir -p "$TEST_DIR/mock-bin"
+cat > "$TEST_DIR/mock-bin/gh" <<'MOCK'
+#!/bin/sh
+case "$*" in
+    "auth status") exit 0 ;;
+    *"api --paginate"*"issues?"*) echo '[]' ;;
+    *"api /user"*) echo '{"login":"test","id":1}' ;;
+    *) echo '{}' ;;
+esac
+MOCK
+chmod +x "$TEST_DIR/mock-bin/gh"
+export PATH="$TEST_DIR/mock-bin:$BIN_DIR:$PATH"
+
+output="$(git issue sync github:owner/new-repo 2>&1)" || true
+case "$output" in
+    *"provider-migrate"*)
+        pass "sync warns about potential rename"
+        ;;
+    *)
+        fail "sync warns about potential rename" "output: $output"
+        ;;
+esac
+
+# ============================================================
+# TEST: sync does NOT warn after provider-migrate was run
+# ============================================================
+run_test
+setup_repo
+create_test_issue "Migrated issue" "github:owner/old-repo#1" >/dev/null
+# Run provider-migrate first
+git issue provider-migrate github:owner/old-repo github:owner/new-repo >/dev/null 2>&1
+
+mkdir -p "$TEST_DIR/mock-bin"
+cat > "$TEST_DIR/mock-bin/gh" <<'MOCK'
+#!/bin/sh
+case "$*" in
+    "auth status") exit 0 ;;
+    *"api --paginate"*"issues?"*) echo '[]' ;;
+    *"api /user"*) echo '{"login":"test","id":1}' ;;
+    *) echo '{}' ;;
+esac
+MOCK
+chmod +x "$TEST_DIR/mock-bin/gh"
+export PATH="$TEST_DIR/mock-bin:$BIN_DIR:$PATH"
+
+output="$(git issue sync github:owner/new-repo 2>&1)" || true
+case "$output" in
+    *"provider-migrate"*)
+        fail "sync does NOT warn after provider-migrate was run" "output: $output"
+        ;;
+    *)
+        pass "sync does NOT warn after provider-migrate was run"
+        ;;
+esac
+
+# ============================================================
 # SUMMARY
 # ============================================================
 printf "\n%.60s\n" "============================================================"
