@@ -254,6 +254,25 @@ else
 fi
 
 # ============================================================
+# TEST: error when not in a git repo (exit 128)
+# ============================================================
+run_test
+_non_git_dir="$(mktemp -d)"
+if output="$(cd "$_non_git_dir" && "$BIN_DIR/git-issue-provider-migrate" github:a/b github:a/c 2>&1)"
+then
+	fail "error when not in a git repo" "should have failed"
+else
+	exit_code=$?
+	if test "$exit_code" -eq 128
+	then
+		pass "error when not in a git repo (exit 128)"
+	else
+		fail "error when not in a git repo (exit 128)" "expected exit 128, got $exit_code"
+	fi
+fi
+rm -rf "$_non_git_dir"
+
+# ============================================================
 # SUMMARY
 # ============================================================
 printf "\n%.60s\n" "============================================================"

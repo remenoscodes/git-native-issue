@@ -167,9 +167,12 @@ do
 	migrated=$((migrated + 1))
 done
 
+_verb="Migrated"
+test "$dry_run" -eq 1 && _verb="Would migrate"
+
 if test "$migrated" -eq 1
 then
-	printf 'Migrated %d issue\n' "$migrated"
+	printf '%s %d issue\n' "$_verb" "$migrated"
 else
-	printf 'Migrated %d issues\n' "$migrated"
+	printf '%s %d issues\n' "$_verb" "$migrated"
 fi
