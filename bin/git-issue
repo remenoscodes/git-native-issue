@@ -25,6 +25,7 @@ Commands:
    sync     Two-way sync (import + export)
    search   Search issues by text pattern
    merge    Merge issues from a remote
+   provider-migrate  Migrate Provider-IDs after repo renames or transfers
    fsck     Validate issue data integrity
    init     Configure the current repo for issue tracking
    version  Print version information
@@ -38,7 +39,7 @@ EOF
 ISSUE_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 case "${1:-}" in
-	create|ls|show|comment|edit|state|search|import|export|sync|merge|fsck|init)
+	create|ls|show|comment|edit|state|search|import|export|sync|merge|fsck|init|provider-migrate)
 		cmd="$1"
 		shift
 		exec "$ISSUE_BIN_DIR/git-issue-$cmd" "$@"

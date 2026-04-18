@@ -38,6 +38,7 @@ test:
 	@sh t/test-merge.sh
 	@sh t/test-qol.sh
 	@sh t/test-comment-sync.sh
+	@sh t/test-provider-migrate.sh
 
 clean:
 	rm -rf t/tmp-*
