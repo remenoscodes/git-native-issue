@@ -1,0 +1,178 @@
+#!/bin/sh
+#
+# git-issue-provider-migrate - Migrate Provider-IDs after repo renames or transfers
+#
+
+set -e
+
+. "$(dirname "$0")/git-issue-lib"
+
+usage() {
+	cat <<EOF
+usage: git issue provider-migrate [--dry-run] <old-prefix> <new-prefix>
+
+Migrates Provider-IDs after repository renames, org transfers, or
+cross-platform migrations. Appends new Provider-ID commits without
+modifying existing history.
+
+Options:
+   --dry-run     Show what would be migrated without making changes
+   -h, --help    Show this help
+
+Examples:
+   git issue provider-migrate github:owner/old-repo github:owner/new-repo
+   git issue provider-migrate github:old-org/repo github:new-org/repo
+   git issue provider-migrate github:owner/repo gitlab:owner/repo
+EOF
+	exit 1
+}
+
+dry_run=0
+old_prefix=""
+new_prefix=""
+
+while test $# -gt 0
+do
+	case "$1" in
+		--dry-run)
+			dry_run=1
+			shift
+			;;
+		-h|--help)
+			usage
+			;;
+		--)
+			shift
+			break
+			;;
+		-*)
+			echo "error: unknown option '$1'" >&2
+			usage
+			;;
+		*)
+			if test -z "$old_prefix"
+			then
+				old_prefix="$1"
+			elif test -z "$new_prefix"
+			then
+				new_prefix="$1"
+			else
+				echo "error: too many arguments" >&2
+				usage
+			fi
+			shift
+			;;
+	esac
+done
+
+if test -z "$old_prefix" || test -z "$new_prefix"
+then
+	echo "error: both <old-prefix> and <new-prefix> are required" >&2
+	usage
+fi
+
+if test "$old_prefix" = "$new_prefix"
+then
+	echo "error: old and new prefix are the same: $old_prefix" >&2
+	exit 1
+fi
+
+# Verify we are inside a git repository
+git rev-parse --git-dir >/dev/null 2>&1 || {
+	echo "fatal: not a git repository" >&2
+	exit 128
+}
+
+# Validate git identity before creating commits (unless dry-run)
+if test "$dry_run" -eq 0
+then
+	validate_git_identity
+fi
+
+empty_tree="$(git hash-object -t tree /dev/null)"
+migrated=0
+
+for ref in $(git for-each-ref --format='%(refname)' refs/issues/)
+do
+	uuid="${ref#refs/issues/}"
+	short_id="$(printf '%s' "$uuid" | cut -c1-7)"
+
+	# Get all Provider-IDs in the chain
+	all_pids="$(git log --format='%(trailers:key=Provider-ID,valueonly)' "$ref" | sed '/^$/d' | sed 's/^[[:space:]]*//')"
+
+	# Check if any Provider-ID matches the old prefix
+	matched_number=""
+	old_ifs="$IFS"
+	IFS='
+'
+	for pid in $all_pids
+	do
+		case "$pid" in
+			"${old_prefix}#"*)
+				matched_number="${pid#*#}"
+				break
+				;;
+		esac
+	done
+	IFS="$old_ifs"
+
+	# Skip issues without a matching Provider-ID
+	test -z "$matched_number" && continue
+
+	new_pid="${new_prefix}#${matched_number}"
+
+	# Idempotency: skip if new Provider-ID already exists in chain
+	already_migrated=0
+	old_ifs="$IFS"
+	IFS='
+'
+	for pid in $all_pids
+	do
+		if test "$pid" = "$new_pid"
+		then
+			already_migrated=1
+			break
+		fi
+	done
+	IFS="$old_ifs"
+
+	if test "$already_migrated" -eq 1
+	then
+		continue
+	fi
+
+	if test "$dry_run" -eq 1
+	then
+		printf '[dry-run] Would migrate %s: %s#%s -> %s\n' "$short_id" "$old_prefix" "$matched_number" "$new_pid"
+	else
+		# Get current HEAD of the issue
+		issue_head="$(git rev-parse "$ref")"
+
+		# Build commit message
+		tmpfile="$(mktemp)"
+		# Use a simple arrow since the Unicode arrow may cause issues in POSIX
+		printf 'Provider migrate: %s -> %s\n' "$old_prefix" "$new_prefix" > "$tmpfile"
+		git interpret-trailers --in-place --trailer "Provider-ID: $new_pid" "$tmpfile"
+
+		# Create new commit as child of current HEAD
+		commit="$(git commit-tree -p "$issue_head" -- "$empty_tree" < "$tmpfile")"
+		rm -f "$tmpfile"
+
+		# Update the ref
+		git update-ref "$ref" "$commit" "$issue_head"
+
+		printf 'Migrated %s: %s#%s -> %s\n' "$short_id" "$old_prefix" "$matched_number" "$new_pid"
+	fi
+
+	migrated=$((migrated + 1))
+done
+
+_verb="Migrated"
+test "$dry_run" -eq 1 && _verb="Would migrate"
+
+if test "$migrated" -eq 1
+then
+	printf '%s %d issue\n' "$_verb" "$migrated"
+else
+	printf '%s %d issues\n' "$_verb" "$migrated"
+fi

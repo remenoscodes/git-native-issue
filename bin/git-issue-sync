@@ -72,5 +72,67 @@ ISSUE_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 printf '=== Importing from %s ===\n' "$provider"
 "$ISSUE_BIN_DIR/git-issue-import" "$provider" --state "$state_filter" $dry_run
 
+# --- Rename detection: warn if issues have Provider-IDs from a different repo name ---
+_sync_type="${provider%%:*}"
+_sync_path="${provider#*:}"
+_sync_owner="${_sync_path%/*}"
+_sync_repo="${_sync_path#*/}"
+_sync_owner_prefix="${_sync_type}:${_sync_owner}/"
+
+_mismatch_file="$(mktemp)"
+: > "$_mismatch_file"
+
+for _ref in $(git for-each-ref --format='%(refname)' refs/issues/)
+do
+	git log --format='%(trailers:key=Provider-ID,valueonly)' "$_ref" | \
+		sed '/^$/d' | sed 's/^[[:space:]]*//' | while read -r _pid
+	do
+		# Does this PID belong to the same owner/type but different repo?
+		case "$_pid" in
+			"${_sync_owner_prefix}"*)
+				_pid_repo="${_pid#"${_sync_owner_prefix}"}"
+				_pid_repo="${_pid_repo%%#*}"
+				if test "$_pid_repo" != "$_sync_repo"
+				then
+					# Check if this issue already has a PID for the target repo
+					_has_new_pid=""
+					git log --format='%(trailers:key=Provider-ID,valueonly)' "$_ref" | \
+						sed '/^$/d' | sed 's/^[[:space:]]*//' | while read -r _check_pid
+					do
+						case "$_check_pid" in
+							"${_sync_owner_prefix}${_sync_repo}#"*)
+								printf 'yes' > "$_mismatch_file.found"
+								;;
+						esac
+					done
+					if test -f "$_mismatch_file.found"
+					then
+						rm -f "$_mismatch_file.found"
+					else
+						printf '%s\n' "${_sync_owner_prefix}${_pid_repo}" >> "$_mismatch_file"
+					fi
+				fi
+				;;
+		esac
+	done
+done
+
+if test -s "$_mismatch_file"
+then
+	printf '\n'
+	printf 'Warning: found issues with Provider-IDs from a different repo name:\n'
+	sort "$_mismatch_file" | uniq -c | while read -r _count _old_prefix
+	do
+		printf '  %s (%d issues)\n' "$_old_prefix" "$_count"
+	done
+	printf 'If the repo was renamed or transferred, run:\n'
+	# Show the first mismatched prefix as example
+	_first_old="$(sort "$_mismatch_file" | head -1)"
+	printf '  git issue provider-migrate %s %s\n' "$_first_old" "${_sync_owner_prefix}${_sync_repo}"
+	printf '\n'
+fi
+rm -f "$_mismatch_file" "$_mismatch_file.found"
+# --- End rename detection ---
+
 printf '\n=== Exporting to %s ===\n' "$provider"
 "$ISSUE_BIN_DIR/git-issue-export" "$provider" $dry_run

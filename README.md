@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/remenoscodes/git-native-issue/actions/workflows/ci.yml/badge.svg)](https://github.com/remenoscodes/git-native-issue/actions/workflows/ci.yml)
 [![License: GPL-2.0](https://img.shields.io/badge/License-GPL--2.0-blue.svg)](https://www.gnu.org/licenses/gpl-2.0)
-[![Version](https://img.shields.io/badge/version-1.3.3-green.svg)](https://github.com/remenoscodes/git-native-issue/releases)
+[![Version](https://img.shields.io/badge/version-1.4.0-green.svg)](https://github.com/remenoscodes/git-native-issue/releases)
 
 Distributed issue tracking using Git's native data model.
 
@@ -164,7 +164,7 @@ make install prefix=~ # User install (~/bin)
 
 ```bash
 git issue version
-# git-issue version 1.3.3
+# git-issue version 1.4.0
 ```
 
 ## Commands
@@ -180,6 +180,7 @@ git issue version
 | `git issue import` | Import issues from a platform (GitHub, GitLab, Gitea, Forgejo) |
 | `git issue export` | Export issues to a platform |
 | `git issue sync` | Two-way sync (import + export) |
+| `git issue provider-migrate` | Migrate Provider-IDs after repo rename or transfer |
 | `git issue search <pattern>` | Search issues by text |
 | `git issue merge <remote>` | Merge issues from a remote |
 | `git issue fsck` | Validate issue data integrity |
@@ -652,7 +653,7 @@ the deliverable that makes ecosystem adoption possible.
 make test
 ```
 
-282 tests: core (77), bridge (37), merge/fsck (21), QoL (22), validation (36), quality (59), edge cases (13), comment sync (8), concurrency (9).
+296 tests: core (77), bridge (37), merge/fsck (21), QoL (22), validation (36), quality (59), edge cases (13), comment sync (8), concurrency (9), provider-migrate (14).
 
 ## Performance Notes
 

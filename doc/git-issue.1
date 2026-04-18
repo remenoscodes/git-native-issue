@@ -65,6 +65,11 @@ Export local issues to an external provider (currently GitHub).
 .B sync
 Two-way synchronization (import followed by export).
 .TP
+.B provider\-migrate
+Migrate Provider-IDs after a repository rename, org transfer, or
+cross-platform move.
+Appends updated Provider-ID commits to matching issues.
+.TP
 .B version
 Print version information.
 .SH DATA MODEL
@@ -124,4 +129,5 @@ and
 .BR git\-issue\-import (1),
 .BR git\-issue\-export (1),
 .BR git\-issue\-sync (1),
+.BR git\-issue\-provider\-migrate (1),
 .BR git (1)

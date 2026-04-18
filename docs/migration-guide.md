@@ -676,6 +676,43 @@ Add to `.git/config` for automatic fetch:
     fetch = +refs/issues/*:refs/issues/*
 ```
 
+## After a Repository Rename
+
+When a repository is renamed (e.g., on GitHub, GitLab, or Gitea), issue
+numbers are preserved but the Provider-IDs in your local issues still
+reference the old name. This can cause duplicates on the next sync.
+
+Fix it with one command:
+
+```
+git issue provider-migrate github:owner/old-name github:owner/new-name
+```
+
+This appends updated Provider-IDs to all affected issues. The original
+Provider-IDs are preserved in the commit history.
+
+`git issue sync` will also detect this situation and suggest the command.
+
+### Other Scenarios
+
+**Organization transfer:**
+
+```
+git issue provider-migrate github:old-org/repo github:new-org/repo
+```
+
+**Cross-platform move (e.g., GitHub to GitLab):**
+
+```
+git issue provider-migrate github:owner/repo gitlab:owner/repo
+```
+
+**Preview before migrating:**
+
+```
+git issue provider-migrate --dry-run github:owner/old-name github:owner/new-name
+```
+
 ## See Also
 
 - [docs/gitlab-bridge.md](gitlab-bridge.md) - GitLab-specific documentation
