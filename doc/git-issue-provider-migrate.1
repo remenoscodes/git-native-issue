@@ -1,0 +1,91 @@
+.TH GIT\-ISSUE\-PROVIDER\-MIGRATE 1 "2026-04-18" "git-issue 1.4.0" "Git Issue Manual"
+.SH NAME
+git\-issue\-provider\-migrate \- migrate Provider-IDs after repo rename or transfer
+.SH SYNOPSIS
+.B git issue provider\-migrate
+.RB [ \-\-dry\-run ]
+.I <old-prefix>
+.I <new-prefix>
+.SH DESCRIPTION
+Migrate Provider-IDs in local issues after a repository rename,
+organization transfer, or cross-platform move.
+.PP
+When a repository is renamed (e.g.,
+.B github:alice/old\-name
+becomes
+.BR github:alice/new\-name ),
+local issues still carry Provider-IDs referencing the old name.
+Running
+.B git issue sync
+with the new name would create duplicates because the old Provider-IDs
+no longer match.
+.PP
+.B git issue provider\-migrate
+scans all issues under
+.B refs/issues/
+for Provider-ID trailers matching
+.IR <old-prefix> ,
+and appends a new commit with the updated Provider-ID using
+.IR <new-prefix> .
+The original Provider-ID commits are preserved in the commit history
+(append-only, immutable).
+.PP
+The operation is idempotent: running it multiple times does not create
+duplicate commits.
+Issue numbers are preserved across the migration.
+.SH OPTIONS
+.TP
+.B \-\-dry\-run
+Show what would be migrated without making any changes.
+.TP
+.BR \-h ", " \-\-help
+Show usage information.
+.SH EXAMPLES
+Repository rename (same owner):
+.RS
+.nf
+$ git issue provider\-migrate github:alice/old\-name github:alice/new\-name
+.fi
+.RE
+.PP
+Organization transfer:
+.RS
+.nf
+$ git issue provider\-migrate github:old\-org/repo github:new\-org/repo
+.fi
+.RE
+.PP
+Cross-platform move (GitHub to GitLab):
+.RS
+.nf
+$ git issue provider\-migrate github:owner/repo gitlab:owner/repo
+.fi
+.RE
+.PP
+Preview changes without modifying anything:
+.RS
+.nf
+$ git issue provider\-migrate \-\-dry\-run github:owner/old github:owner/new
+.fi
+.RE
+.SH BEHAVIOR
+.IP \(bu 2
+.B Append-only:
+New Provider-ID commits are appended to the issue chain.
+Original Provider-ID commits remain in history.
+.IP \(bu 2
+.B Idempotent:
+Safe to run multiple times.
+Issues that already have the new Provider-ID are skipped.
+.IP \(bu 2
+.B Issue numbers preserved:
+Only the repository prefix changes; the issue number (e.g., #42)
+is carried over from old to new.
+.IP \(bu 2
+.B All providers supported:
+Works with GitHub, GitLab, Gitea, and Forgejo Provider-ID formats.
+.SH SEE ALSO
+.BR git\-issue\-sync (1),
+.BR git\-issue\-import (1),
+.BR git\-issue\-export (1),
+.BR git\-issue (1)

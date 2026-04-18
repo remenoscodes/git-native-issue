@@ -5,7 +5,7 @@ Distributed issue tracking using Git's native data model. Issues stored as commi
 Inherits workspace conventions from `~/CLAUDE.md`.
 
 ## Status
-- **Version**: 1.3.3
+- **Version**: 1.4.0
 - **State**: active
 - **Deploy**: Homebrew (`remenoscodes/git-native-issue/git-native-issue`), install script, Makefile
 
@@ -15,7 +15,7 @@ Platform bridges: `gh` (GitHub), `glab` (GitLab), REST API (Gitea/Forgejo).
 
 ## Key Commands
 ```bash
-make test                           # Run all 282 tests
+make test                           # Run all 296 tests
 make install                        # Install system-wide (/usr/local)
 git issue create "title" -l bug     # Create issue with label
 git issue ls --format full          # List issues with metadata

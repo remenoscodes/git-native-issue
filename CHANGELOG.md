@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-04-18
+
+### Added
+
+- **`git issue provider-migrate`** — Migrate Provider-IDs after repository renames, org transfers, or cross-platform moves
+  - Appends new Provider-ID commits to matching issues (preserves immutability, append-only)
+  - Supports dry-run mode (`--dry-run`) to preview changes
+  - Idempotent: safe to run multiple times without creating duplicate commits
+  - Works across all providers (GitHub, GitLab, Gitea, Forgejo)
+- **Rename detection in `git issue sync`** — Warns when local issues have Provider-IDs from a different repo under the same owner, and suggests `provider-migrate` to prevent duplicates
+
 ## [1.3.3] - 2026-02-16
 
 ### Fixed
@@ -328,6 +339,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimized for large repositories
 - Efficient Git plumbing usage
 
+[1.4.0]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.3...v1.4.0
 [1.3.3]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.2...v1.3.3
 [1.3.2]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.1...v1.3.2
 [1.3.1]: https://github.com/remenoscodes/git-native-issue/compare/v1.3.0...v1.3.1
