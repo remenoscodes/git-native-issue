@@ -173,6 +173,7 @@ git issue version
 |---------|-------------|
 | `git issue create <title>` | Create a new issue |
 | `git issue ls` | List issues |
+| `git issue list` | Alias for `ls` |
 | `git issue show <id>` | Show issue details and comments |
 | `git issue comment <id>` | Add a comment |
 | `git issue edit <id>` | Edit metadata (labels, assignee, priority, milestone) |
@@ -217,6 +218,7 @@ git issue edit a7f3b2c -t "Fix login crash on special characters"
 
 ```sh
 git issue ls                    # Open issues (default)
+git issue list                  # list is an alias for ls
 git issue ls --all              # All issues
 git issue ls --state closed     # Closed issues
 git issue ls -l bug             # Filter by label

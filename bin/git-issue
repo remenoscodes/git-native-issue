@@ -15,7 +15,7 @@ usage: git issue <command> [<args>]
 
 Commands:
    create   Create a new issue
-   ls       List issues
+   ls, list List issues
    show     Show issue details and comments
    comment  Add a comment to an issue
    edit     Edit issue metadata (labels, assignee, priority, milestone)
@@ -38,7 +38,7 @@ EOF
 ISSUE_BIN_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 case "${1:-}" in
-	create|ls|show|comment|edit|state|search|import|export|sync|merge|fsck|init)
+	create|ls|list|show|comment|edit|state|search|import|export|sync|merge|fsck|init)
 		cmd="$1"
 		shift
 		exec "$ISSUE_BIN_DIR/git-issue-$cmd" "$@"
