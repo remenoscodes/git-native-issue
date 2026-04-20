@@ -41,6 +41,9 @@ never dismisses features without reasoning.
 Quick-reference comparison table covering: storage, language, lines of code,
 dependencies, binary size, merge strategy, spec availability, license.
 
+Note: Beads is MIT-licensed. The license comparison is neutral — both are
+permissive/copyleft open source. Do not frame license as a differentiator.
+
 One-paragraph verdict immediately below the table: git-native-issue treats
 Git as the database; Beads brings a separate database alongside Git. Both
 solve distributed issue tracking; git-native-issue does it with zero
@@ -53,7 +56,7 @@ Brief section (~150 words). Shared ground:
 - Both reject centralized trackers (GitHub Issues, Jira) as single points
   of failure
 - Both use hash-based IDs for collision-free distributed work (UUID v4 vs
-  hash-derived bd-xxxx)
+  content-hash in base36, e.g. `bd-a3f8e9`)
 - Both sync via push/pull rather than webhooks or polling
 - Both bridge to GitHub, GitLab, Gitea, Azure DevOps
 
@@ -105,7 +108,8 @@ refs/issues/<uuid> → commit chain (append-only)
 
 - Full SQL query power (indexes, joins, foreign keys)
 - Cell-level versioning
-- ~200MB binary + database files
+- Large installed footprint (Go binary with embedded Dolt engine — verify
+  exact size from release artifacts before publishing)
 - Requires Dolt engine (embedded or server mode)
 
 Key argument: git-native-issue's storage IS Git. Beads' storage is a
@@ -131,7 +135,7 @@ its own semantics that users must trust as a black box.
 
 ### 6. The Dependency Graph Question
 
-The key rebuttal section (~500 words). Beads' strongest selling point is
+The key rebuttal section (~600 words). Beads' strongest selling point is
 its dependency graph (`dep add/remove/tree`, `bd ready`, cycle detection).
 
 Argument: this is a data modeling problem, not a storage engine problem.
@@ -144,19 +148,38 @@ Parent: b8c9d0e
 Related: f1a2b3c
 ```
 
-These are append-only, queryable via `git log --format='%(trailers:key=Blocks)'`,
-and merge-safe (union semantics).
+These are append-only and merge-safe (union semantics).
+
+**Querying**: Be honest about the cost. Querying trailers requires iterating
+issue refs — `git for-each-ref refs/issues/` to collect tips, then inspecting
+each tip commit's trailers. This is O(n) over all issues, not an indexed
+lookup like Dolt's SQL. For most repositories (hundreds of issues), this is
+fast. For thousands, it's slower than SQL but still tractable — the same
+pattern `git issue ls` already uses for filtering by label or priority.
+The tradeoff is: no new dependency for queries that are "fast enough" at
+realistic scale.
+
+**Cycle detection**: Don't hand-wave this. Detecting cycles in a
+trailer-based graph requires a full DFS traversal across all `Blocks:`/
+`Blocked-By:` relationships. This is non-trivial but well-understood — a
+standard graph DFS in awk or shell. Acknowledge the implementation cost
+honestly.
 
 Show how GitHub Issues models epics, stories, tasks, and blockers with zero
 built-in hierarchy — using labels + cross-references. git-native-issue's
 trailers are MORE structured than GitHub's freeform markdown.
 
 A ready queue is: "open issues where no unresolved Blocked-By target exists."
-Computable with `git for-each-ref` + awk.
+Requires collecting all open issues' Blocked-By trailers, checking which
+targets are still open, and filtering. Not a one-liner, but the same
+algorithmic complexity as any graph-based ready queue.
 
 Acknowledge: this is a feature gap today, not an architectural limitation.
-Closing it requires new trailers in the spec + ~3 new commands (~200 lines
-of shell), not a database migration.
+Closing it requires new trailers in the spec + ~5 new commands (dep add,
+dep remove, dep list, dep tree, ready) plus cycle detection and validation.
+Realistic estimate: 400-600 lines of shell, not a database migration. This
+is meaningful work but proportional — git-native-issue's existing commands
+average 100-150 lines each.
 
 ### 7. Agent Integration
 
@@ -166,10 +189,12 @@ atomic `--claim`, `bd ready`, built-in Anthropic SDK, MCP server.
 git-native-issue approaches this via plugins (claude-git-native-issue)
 rather than baking agent concerns into the core tool.
 
-Argument: keeping the core tool human-first is a feature, not a limitation.
-Trailers ARE structured data — agents consume them naturally. A `--json`
-output flag is a small addition. Agent orchestration (molecules, gates,
-formulas) belongs in orchestration tools, not issue trackers.
+Note: Beads IS human-usable — it has a full CLI and TUI. The argument is
+not that Beads sacrificed human usability, but that agent-specific concerns
+(molecules, gates, formulas, built-in LLM SDKs) don't need to live in the
+issue tracker's core. Trailers ARE structured data — agents consume them
+naturally. A `--json` output flag is a small addition. Agent orchestration
+belongs in orchestration tools, not issue trackers.
 
 ### 8. What Beads Has That We Don't (And Whether It Matters)
 
@@ -194,10 +219,11 @@ formulas) belongs in orchestration tools, not issue trackers.
 
 **Tier 3 — Architectural bloat:**
 
-- Wisps (ephemeral TTL messages in an append-only tracker — contradicts the
-  model)
+- Wisps (ephemeral TTL messages in an issue tracker — adds complexity with
+  unclear benefit; while append-only systems can support TTL (e.g. Kafka),
+  it's unclear this belongs in issue tracking)
 - Compaction/memory decay (rewriting history contradicts content-addressable
-  design)
+  design; optimizes for AI context windows at the cost of auditability)
 - OpenTelemetry (observability for an issue tracker CLI tool?)
 - 212 Go module dependencies for a task that shell scripts handle
 
@@ -216,6 +242,10 @@ Categories:
 - Data properties (tamper-evident, human-readable, spec-driven, bare repo)
 
 Values: checkmark, "planned", "N/A — by design" (for deliberate omissions).
+
+Pin the comparison to a specific Beads release (v1.0.2 as of 2026-04-20)
+and include a "last verified" date at the top. This prevents staleness
+without creating ongoing maintenance burden.
 
 ### 10. When to Use Which
 
