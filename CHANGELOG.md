@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **ISSUE-FORMAT.md §4.9 (Trailer Value Encoding)**: Removed false claim that multi-line trailers "violate Git's trailer format specification". Git's trailer format permits multi-line values via RFC 822-style folding; this specification adopts a stricter single-line subset deliberately, for injection prevention and parser simplicity (the design choice stands; only the justification was wrong). Caught by external review on r/git.
+
 ## [1.3.3] - 2026-02-16
 
 ### Fixed

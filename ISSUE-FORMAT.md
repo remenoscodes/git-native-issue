@@ -400,8 +400,13 @@ CRLF             = %x0A  ; Git uses LF, not CRLF
 ### 4.9 Trailer Value Encoding
 
 Trailer values MUST NOT contain newline characters (LF or CRLF).
-Multi-line text in trailers creates security vulnerabilities (trailer
-injection attacks) and violates Git's trailer format specification.
+
+Git's trailer format permits multi-line values via RFC 822-style
+folding (continuation lines starting with whitespace). This
+specification adopts a stricter single-line subset for two reasons:
+it prevents trailer-injection attacks (where embedded newlines could
+fake additional trailers), and it keeps the parser trivial enough to
+implement with line-based shell tools (grep, awk, sed).
 
 **Encoding Rules**:
 
