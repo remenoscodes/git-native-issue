@@ -652,7 +652,7 @@ the deliverable that makes ecosystem adoption possible.
 make test
 ```
 
-282 tests: core (77), bridge (37), merge/fsck (21), QoL (22), validation (36), quality (59), edge cases (13), comment sync (8), concurrency (9).
+284 tests: core (79), bridge (37), merge/fsck (21), QoL (22), validation (36), quality (59), edge cases (13), comment sync (8), concurrency (9).
 
 ## Performance Notes
 

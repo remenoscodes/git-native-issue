@@ -12,7 +12,7 @@ usage() {
 usage: git issue create [options] <title>
 
 Options:
-   -m, --message <text>    Issue description (body)
+   -m, --message <text>    Issue description (body); use multiple times for paragraphs
    -l, --label <label>     Add a label (can be repeated)
    -a, --assignee <email>  Assign to someone
    -p, --priority <level>  Set priority (low, medium, high, critical)
@@ -34,7 +34,12 @@ do
 	case "$1" in
 		-m|--message)
 			test $# -ge 2 || { echo "error: -m requires a value" >&2; exit 1; }
-			body="$2"
+			if test -n "$body"
+			then
+				body="$(printf '%s\n\n%s' "$body" "$2")"
+			else
+				body="$2"
+			fi
 			shift 2
 			;;
 		-l|--label)

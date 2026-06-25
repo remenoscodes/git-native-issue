@@ -205,6 +205,24 @@ case "$body" in
 esac
 
 # ============================================================
+# TEST: create with multiple -m flags builds multi-paragraph body
+# ============================================================
+run_test
+setup_repo
+git issue create "Multi-paragraph issue" -m "First paragraph" -m "Second paragraph" >/dev/null
+ref="$(git for-each-ref --format='%(refname)' refs/issues/ | head -1)"
+root="$(git rev-list --max-parents=0 "$ref")"
+body="$(git log -1 --format='%b' "$root" | sed '/^[A-Z][A-Za-z-]*: /d')"
+case "$body" in
+	*"First paragraph"*"Second paragraph"*)
+		pass "create with multiple -m flags builds multi-paragraph body"
+		;;
+	*)
+		fail "create with multiple -m flags builds multi-paragraph body" "got: '$body'"
+		;;
+esac
+
+# ============================================================
 # TEST: create with priority
 # ============================================================
 run_test
@@ -765,6 +783,25 @@ then
 else
 	fail "three comments create correct 4-commit chain" "got $total commits"
 fi
+
+# ============================================================
+# TEST: comment with multiple -m flags builds multi-paragraph body
+# ============================================================
+run_test
+setup_repo
+out="$(git issue create "Comment paragraph test" 2>&1)"
+id="$(printf '%s' "$out" | sed 's/Created issue //')"
+git issue comment "$id" -m "First paragraph" -m "Second paragraph" >/dev/null
+ref="$(git for-each-ref --format='%(refname)' refs/issues/ | head -1)"
+full="$(git log -1 --format='%B' "$ref")"
+case "$full" in
+	*"First paragraph"*"Second paragraph"*)
+		pass "comment with multiple -m flags builds multi-paragraph body"
+		;;
+	*)
+		fail "comment with multiple -m flags builds multi-paragraph body" "got: '$full'"
+		;;
+esac
 
 # ============================================================
 # TEST: state --state custom value
