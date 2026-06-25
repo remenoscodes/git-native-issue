@@ -327,7 +327,10 @@ Labels: label1, label2, label3
 
 When comparing labels for merge operations (Section 6.3), implementations
 MUST trim whitespace and compare the resulting strings exactly
-(case-sensitive).
+(case-sensitive). Implementations SHOULD normalize labels to lowercase
+before comparison to avoid case-variant duplicates (e.g., `bug` and `Bug`
+being treated as distinct labels). This normalization is RECOMMENDED but
+not REQUIRED, to preserve intentional casing (e.g., `iOS`, `API`, `UI`).
 
 ### 4.8 Formal Grammar (ABNF)
 
@@ -555,7 +558,8 @@ known limitations:
 **1. Case Variants**:
 - `bug` and `Bug` are distinct labels
 - Concurrent addition of both creates duplicates: `bug, Bug`
-- Resolution: Manual cleanup or project conventions
+- Resolution: Implementations SHOULD apply lowercase normalization per
+  Section 4.7. Projects SHOULD establish consistent casing conventions.
 
 **2. Semantic Duplicates**:
 - `enhancement` and `feature` are distinct labels
