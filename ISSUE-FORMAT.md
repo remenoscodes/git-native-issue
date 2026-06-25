@@ -340,31 +340,31 @@ Form (ABNF, RFC 5234):
 ```abnf
 issue-commit     = root-commit / comment-commit / state-commit / merge-commit
 
-root-commit      = title CRLF CRLF description CRLF CRLF
-                   "State: " state-value CRLF
+root-commit      = title LF LF description LF LF
+                   "State: " state-value LF
                    [optional-trailers]
-                   "Format-Version: 1" CRLF
+                   "Format-Version: 1" LF
 
-comment-commit   = comment-subject CRLF CRLF comment-body
-                   [CRLF CRLF state-trailers]
+comment-commit   = comment-subject LF LF comment-body
+                   [LF LF state-trailers]
 
-state-commit     = change-subject CRLF CRLF change-body CRLF CRLF
-                   "State: " state-value CRLF
+state-commit     = change-subject LF LF change-body LF LF
+                   "State: " state-value LF
                    [state-trailers]
 
-merge-commit     = "Merge issue from " remote-name CRLF
-                   [CRLF body]
-                   CRLF CRLF
-                   "State: " state-value CRLF
+merge-commit     = "Merge issue from " remote-name LF
+                   [LF body]
+                   LF LF
+                   "State: " state-value LF
                    [merge-trailers]
 
-title            = TEXT-NO-LF  ; max 72 characters recommended
+title            = 1*TEXT-NO-LF  ; SHOULD be 72 characters or fewer
 comment-subject  = TEXT-NO-LF
 change-subject   = TEXT-NO-LF
-comment-body     = *( TEXT-NO-LF CRLF )
-description      = *( TEXT-NO-LF CRLF )
-change-body      = *( TEXT-NO-LF CRLF )
-body             = *( TEXT-NO-LF CRLF )
+comment-body     = *( TEXT-NO-LF LF )
+description      = *( TEXT-NO-LF LF )
+change-body      = *( TEXT-NO-LF LF )
+body             = *( TEXT-NO-LF LF )
 
 state-value      = "open" / "closed"
 remote-name      = TEXT-NO-LF
@@ -373,7 +373,7 @@ optional-trailers = *( trailer )
 state-trailers    = *( trailer )
 merge-trailers    = *( trailer )
 
-trailer          = trailer-key ": " trailer-value CRLF
+trailer          = trailer-key ": " trailer-value LF
 trailer-key      = "Labels" / "Assignee" / "Priority" / "Milestone" /
                    "Fixed-By" / "Release" / "Reason" / "Provider-ID" /
                    "Provider-Comment-ID" / "Parent-ID" / "Title" /
@@ -389,12 +389,14 @@ UTF8-3           = %xE0-EF 2UTF8-tail
 UTF8-4           = %xF0-F7 3UTF8-tail
 UTF8-tail        = %x80-BF
 
-CRLF             = %x0A  ; Git uses LF, not CRLF
+LF               = %x0A  ; Git commit messages use LF, not CRLF
 ```
 
 **Notes**:
-- This grammar uses `CRLF` as a placeholder for line endings, but Git
-  commit messages use LF (`\n`, 0x0A) not CRLF (`\r\n`).
+- Git commit messages use LF (`\n`, 0x0A), not CRLF (`\r\n`). The
+  grammar uses `LF` to reflect this accurately per RFC 5234.
+- `title` uses `1*TEXT-NO-LF` (one or more characters) — empty titles
+  are invalid.
 - The `TEXT-NO-LF` production allows any UTF-8 text except newline.
 - Trailer values must not contain embedded newlines (security requirement
   from Section 4.9 and Section 11.1).
